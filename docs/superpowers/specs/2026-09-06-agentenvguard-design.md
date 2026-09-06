@@ -100,7 +100,7 @@ dotenvx는 볼트·주입·마스킹을 준다. 하지만 에이전트에게 다
 
 ```text
 Claude Code
-  │ PreToolUse (Bash, Read)
+  │ PreToolUse (Bash, Read, Grep)
   ▼
 훅 어댑터  ──►  판정 엔진  ──►  allow / deny + 교정 메시지
 (도구별)        (도구 중립)
@@ -114,7 +114,7 @@ Claude Code
 무관하게 순수 함수로 두고, Claude Code의 JSON 입출력 규약을 다루는 부분만
 어댑터에 가둔다. 지금은 어댑터가 하나다.
 
-**언어를 Go로 정한 이유**는 성능이다. PreToolUse 훅은 모든 Bash·Read 호출마다
+**언어를 Go로 정한 이유**는 성능이다. PreToolUse 훅은 모든 Bash·Read·Grep 호출마다
 실행되고, 전역 설치이므로 하루 종일 돈다. Node 기동은 50~100ms라 체감된다.
 Go 단일 바이너리는 1~3ms다. 배포도 단일 파일이라 brew·curl 채널이 단순하다.
 
@@ -135,12 +135,22 @@ Go 단일 바이너리는 1~3ms다. 배포도 단일 파일이라 brew·curl 채
 
 | # | 대상 | 검사 위치 |
 |---|---|---|
-| 1 | `.env.keys` 접근 (`cat`, `head`, `less`, `grep`, `sed`, `awk`, `cp`, `base64` 등) | Bash, Read |
+| 1 | `.env.keys` 접근 (`cat`, `head`, `less`, `grep`, `sed`, `awk`, `cp`, `base64` 등) | Bash, Read, Grep |
 | 2 | `DOTENV_PRIVATE_KEY` 출력 (`echo`, `env`, `printenv`, `set`) | Bash |
 | 3 | `dotenvx get <KEY>` | Bash |
 | 4 | `dotenvx decrypt` (특히 `--stdout`) | Bash |
 | 5 | redact 우회 플래그 `--no-redact`, `--mask 0` | Bash |
-| 6 | **평문** `.env` 읽기 | Bash, Read |
+| 6 | **평문** `.env` 읽기 | Bash, Read, Grep |
+
+### Grep 을 반드시 포함한다
+
+`Grep` 은 매칭된 **줄 내용을 반환한다.** 따라서
+`Grep(pattern="DOTENV_PRIVATE_KEY", path=".env.keys")` 한 번이면 Bash도 Read도
+거치지 않고 개인키가 그대로 나온다. 매처에서 Grep을 빠뜨리면 정책 전체가
+무의미해진다.
+
+`Glob` 은 경로만 반환하므로 대상이 아니다. `Edit`·`Write` 는 파일 내용을
+반환하지 않고, `Edit` 는 선행 `Read` 를 요구하므로 그 지점에서 이미 막힌다.
 
 ### 6번이 전역화의 핵심
 
@@ -225,17 +235,73 @@ MVP는 네 개다.
 
 ## 훅 어댑터
 
-Claude Code PreToolUse 훅은 stdin으로 `tool_name` 과 `tool_input` 을 담은
-JSON을 받고, 종료코드 2로 차단하며 stderr 내용이 에이전트에게 전달된다.
-(정확한 스키마는 구현 시 현재 문서로 검증한다 — 미해결 항목 2번.)
+Claude Code 공식 문서로 확인한 규약이다.
+
+**stdin JSON** (PreToolUse):
+
+```json
+{
+  "session_id": "...",
+  "cwd": "/current/working/directory",
+  "permission_mode": "default|plan|acceptEdits|auto|dontAsk|bypassPermissions",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": { "command": "cat .env.keys" },
+  "tool_use_id": "toolu_01ABC..."
+}
+```
+
+도구별 `tool_input`: Bash 는 `command`, Read 는 `file_path`,
+Grep 은 `pattern` 과 `path`.
+
+**출력은 JSON 방식을 쓴다.** exit 2 + stderr 도 차단이 되지만 채택하지 않는다.
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "교정 메시지"
+  }
+}
+```
+
+이유는 fail-open 이다. 종료코드를 판정 신호로 쓰면 **의도적 차단(exit 2)과
+버그로 인한 비정상 종료가 구분되지 않는다.** 판정기가 크래시했을 때
+에이전트의 모든 툴 호출이 막히는 것이 최악의 실패다. JSON 방식은 항상 exit 0
+으로 끝나고 판정을 본문에 담으므로, 파싱 실패·내부 오류는 자연스럽게
+`permissionDecision: "allow"` 로 표현된다.
+
+**settings.json 등록 형태:**
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read|Grep",
+        "hooks": [
+          { "type": "command", "command": "/usr/local/bin/aeg", "args": ["hook"] }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`args` 를 명시하면 exec form 이 되어 셸을 경유하지 않는다. 셸 기동 비용이
+사라져 10ms 예산에 여유가 생긴다.
 
 어댑터 인터페이스:
 
 ```go
+type ToolKind int // Bash | FileRead | ContentSearch
+
 type ToolCall struct {
-    Kind    ToolKind // Bash | FileRead
-    Command string   // Bash일 때
-    Path    string   // FileRead일 때
+    Kind    ToolKind
+    Command string // Bash
+    Path    string // FileRead, ContentSearch
+    Pattern string // ContentSearch
     Cwd     string
 }
 
@@ -246,18 +312,21 @@ type Decision struct {
 
 type Adapter interface {
     Parse(stdin io.Reader) (ToolCall, error)
-    Emit(w io.Writer, d Decision) int // 종료코드 반환
+    Emit(w io.Writer, d Decision) error
 }
 ```
 
 판정 엔진은 `Decide(ToolCall) Decision` 하나다. 어댑터에 의존하지 않는다.
+`Emit` 은 종료코드를 반환하지 않는다. 항상 0이다.
 
 ## 오류 처리
 
 **판정 불가 시 통과시킨다(fail-open).** 훅이 stdin 파싱에 실패하거나
 설정 파일이 깨졌을 때 차단하면 에이전트의 모든 툴 호출이 막혀 작업이
 불가능해진다. 우발적 노출 차단이 목표이지 가용성을 희생할 문제가 아니다.
-단, stderr에 경고를 남긴다.
+
+구현상으로는 항상 exit 0 으로 끝내고 `permissionDecision: "allow"` 를 낸다.
+패닉은 최상위에서 recover 하여 allow 로 떨어뜨린다. 경고는 stderr 에 남긴다.
 
 예외: `.env.keys` 경로 매칭처럼 판정이 명확한 경우는 파싱 실패와 무관하게
 차단한다.
@@ -283,12 +352,39 @@ type Adapter interface {
   stderr를 확인.
 - **성능** — 판정 1회가 10ms 이내인지 벤치마크.
 
-## 미해결 항목
+## 결정 기록
 
-1. **dotenvx 라이선스 확인.** README에 명시가 없다. 의존 전에 확인한다.
-2. **Claude Code PreToolUse 훅의 정확한 JSON 스키마와 차단 규약.**
-   구현 첫 단계에서 현재 문서로 검증한다.
-3. **`aeg scan` 의 탐색 범위.** 홈 전체는 느리다. 기본값을 홈으로 둘지,
-   `~/projects` 같은 관례 경로로 좁힐지, 첫 실행에서 물을지 정한다.
-4. **`aeg` 바이너리 이름 선점 확인.** PATH 상의 기존 명령이나 Homebrew
-   포뮬러와 겹치는지 구현 전에 확인한다.
+설계 시점의 미해결 4건은 모두 조사로 해소했다.
+
+1. **dotenvx 라이선스: BSD-3-Clause** (Copyright 2024, Scott Motte).
+   상업 이용·재배포·의존 도구 제작에 제약이 없다. 더구나 우리는 dotenvx를
+   링크하지 않고 **서브프로세스로 호출**하므로 라이선스 전파 문제 자체가
+   발생하지 않는다. 바이너리를 번들하지 않고 사용자가 별도 설치한다.
+2. **훅 스키마: 확인 완료.** 「훅 어댑터」 참조. 이 조사 결과로 설계가
+   세 군데 바뀌었다 — Grep 매처 추가(보안 구멍), JSON 출력 채택(fail-open),
+   `args` exec form(성능).
+3. **`aeg scan` 탐색 범위: 결정.** 아래 참조.
+4. **`aeg` 이름: 사용 가능.** PATH에 없고 Homebrew 포뮬러도 없다
+   (유사 검색 결과 `libaegis`, `yaegi`, `agg`, `reg`, `peg` — 충돌 아님).
+
+### `aeg scan` 탐색 범위
+
+인자가 없으면 `$HOME` 부터 훑는다. 첫 실행에서 사용자에게 묻지 않는다 —
+설치하고 바로 값을 봐야 한다.
+
+느려지지 않게 세 가지를 건다.
+
+- **깊이 제한 기본 6.** `--depth` 로 조정.
+- **하드 제외**: `node_modules`, `.git`, `vendor`, `dist`, `build`, `target`,
+  `.venv`, `venv`, `.cache`, `.Trash`, `go/pkg`, 그리고 macOS의 `~/Library`.
+- **이름 매칭 우선.** `.env` 계열 파일명만 먼저 찾고, 내용 읽기는 후보에만 한다.
+
+네트워크 동기화 폴더(Google Drive, Dropbox, iCloud)는 지연이 크므로 만나면
+경고하고 계속한다. 전체가 느리면 `aeg scan ~/projects` 로 좁히라고 안내한다.
+
+## 사전 준비
+
+구현 시작 전에 로컬에 없어서 설치해야 하는 것.
+
+- **Go** — 미설치. `brew install go`
+- **dotenvx** — 미설치. `brew install dotenvx`
