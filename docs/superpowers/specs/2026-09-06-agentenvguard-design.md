@@ -1,6 +1,19 @@
-# EnvGuard 설계
+# AgentEnvGuard 설계
 
 작성일: 2026-09-06
+
+## 이름
+
+프로젝트 이름은 **AgentEnvGuard**, 실행 바이너리는 **`aeg`** 다.
+
+`Agent` 접두어는 이 도구의 차별점을 담는다 — 막는 상대가 git도 사람도 아니라
+코딩 에이전트다. 바이너리를 `aeg` 로 짧게 따로 두는 이유는 CLI 관례
+(`git`, `jq`, `rg`, `age`, `sops`, `direnv`)에 맞추기 위해서다. 13자짜리
+명령은 모두가 alias를 걸게 되고, 그러면 이름이 아무 일도 하지 않는다.
+
+기존 `amannirala13/envguard` 와의 혼동 가능성은 남는다. README 첫 문단에서
+"dotenvx 위에 얹는 에이전트 가드레일이며 시크릿 매니저가 아니다"를 명시해
+포지셔닝으로 해소한다.
 
 ## 문제
 
@@ -156,26 +169,26 @@ dotenvx get DART_API_KEY 는 평문을 대화 컨텍스트에 남깁니다.
 
 ```text
 이 프로젝트의 .env 는 아직 평문입니다.
-  envguard init
+  aeg init
 로 암호화한 뒤 다시 시도하세요.
 ```
 
 ### 예외
 
 - 확장자 예외: `.env.example`, `.env.template`, `.env.sample`
-- 사용자 예외: `~/.config/envguard/allow` 에 경로를 한 줄씩. 해당 경로
+- 사용자 예외: `~/.config/aeg/allow` 에 경로를 한 줄씩. 해당 경로
   이하는 판정을 건너뛴다.
 
 ## CLI 표면
 
 MVP는 네 개다.
 
-### `envguard install`
+### `aeg install`
 
 `~/.claude/settings.json` 에 PreToolUse 훅을 건다. 기존 설정을 보존하며
 병합하고, 멱등이라 두 번 돌려도 중복이 생기지 않는다. 노트북당 한 번.
 
-### `envguard scan [경로]`
+### `aeg scan [경로]`
 
 기본값 홈 디렉터리 아래를 훑어 평문 `.env` 를 쓰는 프로젝트를 목록으로 낸다.
 사용자가 어느 프로젝트에 뭐가 있는지 기억할 필요를 없앤다.
@@ -183,7 +196,7 @@ MVP는 네 개다.
 
 `node_modules`, `.git`, `vendor`, `dist`, `build` 는 건너뛴다.
 
-### `envguard init [경로]`
+### `aeg init [경로]`
 
 프로젝트 하나를 마이그레이션한다.
 
@@ -201,7 +214,7 @@ MVP는 네 개다.
 
 평문 `.env` 백업 파일은 만들지 않는다. 평문이 하나 더 남을 뿐이다.
 
-### `envguard hook`
+### `aeg hook`
 
 훅이 내부적으로 호출하는 판정기. stdin으로 도구 호출 정보를 받아 판정한다.
 사용자가 직접 부를 일은 없다.
@@ -214,7 +227,7 @@ MVP는 네 개다.
 
 Claude Code PreToolUse 훅은 stdin으로 `tool_name` 과 `tool_input` 을 담은
 JSON을 받고, 종료코드 2로 차단하며 stderr 내용이 에이전트에게 전달된다.
-(정확한 스키마는 구현 시 현재 문서로 검증한다 — 미해결 항목 3번.)
+(정확한 스키마는 구현 시 현재 문서로 검증한다 — 미해결 항목 2번.)
 
 어댑터 인터페이스:
 
@@ -272,12 +285,10 @@ type Adapter interface {
 
 ## 미해결 항목
 
-1. **이름 충돌.** `amannirala13/envguard` 가 같은 영역(로컬 시크릿 관리)의
-   기존 프로젝트다. npm에도 `envguard` / `env-guard` 계열이 있고 그쪽은
-   환경변수 **검증** 라이브러리라 의미까지 겹친다. 공개 배포 전에 결정한다.
-   대안: `envseal`, `keyward`, `hushenv`.
-2. **dotenvx 라이선스 확인.** README에 명시가 없다. 의존 전에 확인한다.
-3. **Claude Code PreToolUse 훅의 정확한 JSON 스키마와 차단 규약.**
+1. **dotenvx 라이선스 확인.** README에 명시가 없다. 의존 전에 확인한다.
+2. **Claude Code PreToolUse 훅의 정확한 JSON 스키마와 차단 규약.**
    구현 첫 단계에서 현재 문서로 검증한다.
-4. **`scan` 의 탐색 범위.** 홈 전체는 느리다. 기본값을 홈으로 둘지,
+3. **`aeg scan` 의 탐색 범위.** 홈 전체는 느리다. 기본값을 홈으로 둘지,
    `~/projects` 같은 관례 경로로 좁힐지, 첫 실행에서 물을지 정한다.
+4. **`aeg` 바이너리 이름 선점 확인.** PATH 상의 기존 명령이나 Homebrew
+   포뮬러와 겹치는지 구현 전에 확인한다.
