@@ -58,6 +58,17 @@ func TestParseGrep(t *testing.T) {
 	}
 }
 
+func TestParseGrepGlob(t *testing.T) {
+	in := `{"cwd":"/p","tool_name":"Grep","tool_input":{"pattern":"KEY","glob":".env.keys"}}`
+	got, err := ClaudeCode{}.Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Glob != ".env.keys" {
+		t.Errorf("Glob = %q, want .env.keys", got.Glob)
+	}
+}
+
 func TestParseUnknownToolIsUnknownKind(t *testing.T) {
 	in := `{"cwd":"/p","tool_name":"WebFetch","tool_input":{"url":"x"}}`
 	got, err := ClaudeCode{}.Parse(strings.NewReader(in))

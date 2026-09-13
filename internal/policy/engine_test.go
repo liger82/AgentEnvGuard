@@ -58,6 +58,44 @@ func TestDecideGrepIsBlocked(t *testing.T) {
 	}
 }
 
+// 패턴이 무해해도 path 가 .env.keys 면 경로만으로 차단해야 한다.
+func TestDecideGrepBenignPatternOnEnvKeysPath(t *testing.T) {
+	e := engineWith(nil)
+	got := e.Decide(ToolCall{Kind: ToolContentSearch, Path: ".env.keys", Pattern: "HELLO", Cwd: "/p"})
+	if got.Allow {
+		t.Fatal("무해한 패턴으로 .env.keys 를 Grep 하는 것이 허용됐다")
+	}
+}
+
+// Grep 의 glob 은 검색할 파일을 고른다. glob 이 .env.keys 를 가리키면 path 가
+// 디렉터리여도 개인키 줄이 나온다.
+func TestDecideGrepGlob(t *testing.T) {
+	e := engineWith(nil)
+	tests := []struct {
+		name      string
+		path      string
+		glob      string
+		wantAllow bool
+	}{
+		{"glob .env.keys 차단", "", ".env.keys", false},
+		{"glob .env.keys* 차단", "", ".env.keys*", false},
+		{"하위 경로 glob 차단", "", "**/.env.keys", false},
+		{"디렉터리 path + glob 차단", "/p/sub", ".env.keys", false},
+		{"무관한 glob 허용", "", "*.go", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := e.Decide(ToolCall{
+				Kind: ToolContentSearch, Path: tt.path, Glob: tt.glob,
+				Pattern: "HELLO", Cwd: "/p",
+			})
+			if got.Allow != tt.wantAllow {
+				t.Errorf("Allow = %v, want %v (reason: %s)", got.Allow, tt.wantAllow, got.Reason)
+			}
+		})
+	}
+}
+
 // Grep 의 path 는 선택 사항이다 — 비워두면 작업 디렉터리를 재귀 검색하고,
 // 디렉터리를 줘도 마찬가지다. 경로 판정만으로는 이 경우를 잡을 수 없으므로
 // 패턴 자체에 DOTENV_PRIVATE_KEY 가 있는지 본다.

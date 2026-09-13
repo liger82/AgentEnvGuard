@@ -18,6 +18,7 @@ type preToolUseInput struct {
 		FilePath string `json:"file_path"` // Read
 		Pattern  string `json:"pattern"`   // Grep
 		Path     string `json:"path"`      // Grep
+		Glob     string `json:"glob"`      // Grep
 	} `json:"tool_input"`
 }
 
@@ -38,6 +39,7 @@ func (ClaudeCode) Parse(r io.Reader) (policy.ToolCall, error) {
 		tc.Kind = policy.ToolContentSearch
 		tc.Path = in.ToolInput.Path
 		tc.Pattern = in.ToolInput.Pattern
+		tc.Glob = in.ToolInput.Glob
 	default:
 		tc.Kind = policy.ToolUnknown
 	}

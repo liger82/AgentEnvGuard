@@ -142,6 +142,17 @@ func (e *Engine) decideContentSearch(tc ToolCall) Decision {
 	if isPrivateKeyPattern(tc.Pattern) {
 		return deny(msgGrepPrivateKey)
 	}
+	// glob 은 path(또는 작업 디렉터리) 아래에서 검색할 파일을 고른다. 파일명
+	// 규칙은 경로 분류기와 같게 본다(.env.keys, .env.keys*, **/.env.keys).
+	if tc.Glob != "" {
+		base := full
+		if base == "" {
+			base = tc.Cwd
+		}
+		if target := filepath.Join(base, tc.Glob); ClassifyPath(target) == PathEnvKeys {
+			return deny(msgEnvKeys, target)
+		}
+	}
 	return e.decidePathKind(full)
 }
 

@@ -15,6 +15,7 @@ type ToolCall struct {
 	Command string // ToolBash
 	Path    string // ToolFileRead, ToolContentSearch
 	Pattern string // ToolContentSearch
+	Glob    string // ToolContentSearch — 검색할 파일을 고르는 glob
 	Cwd     string // 상대 경로 해석 기준
 }
 
