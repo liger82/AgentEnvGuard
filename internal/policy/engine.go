@@ -120,8 +120,8 @@ func (e *Engine) decideBash(tc ToolCall) Decision {
 		return deny(msgDotenvxDecrypt)
 	case CmdDotenvxKeypair:
 		return deny(msgDotenvxKeypair)
-	case CmdRedactBypass:
-		return deny(msgRedactBypass)
+	case CmdEnvDump:
+		return deny(msgEnvDump)
 	case CmdPrivateKeyEcho:
 		return deny(msgPrivateKey)
 	}
@@ -161,10 +161,10 @@ const (
 값을 직접 볼 필요 없이 다음으로 실행하세요:
   dotenvx run -- <실행할 명령>`
 
-	msgRedactBypass = `--no-redact 와 --mask 0 은 자식 프로세스 출력의 마스킹을 끕니다.
-스크립트가 에러 메시지에 키를 뱉으면 그대로 노출됩니다.
+	msgEnvDump = `dotenvx run 은 복호화한 평문 값을 그대로 주입합니다. 자식 명령이 printenv, env
+처럼 환경변수를 출력하면 시크릿이 대화 컨텍스트에 남습니다.
 
-플래그 없이 실행하세요:
+실행할 명령 자체가 환경변수를 출력하지 않게 하세요:
   dotenvx run -- <실행할 명령>`
 
 	msgPrivateKey = `DOTENV_PRIVATE_KEY 를 출력하면 볼트 전체가 열립니다.

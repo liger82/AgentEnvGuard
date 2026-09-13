@@ -117,7 +117,9 @@ func TestDecideBash(t *testing.T) {
 		{"dotenvx get 차단", "dotenvx get DART_API_KEY", false},
 		{"dotenvx decrypt 차단", "dotenvx decrypt --stdout", false},
 		{"dotenvx keypair 차단", "dotenvx keypair", false},
-		{"redact 우회 차단", "dotenvx run --no-redact -- python x.py", false},
+		{"run -- printenv 차단", "dotenvx run -- printenv", false},
+		{"run -- env 차단", "dotenvx run -- env", false},
+		{"run -f -- printenv X 차단", "dotenvx run -f .env.production -- printenv X", false},
 		{"개인키 출력 차단", "echo $DOTENV_PRIVATE_KEY", false},
 		{"cat .env.keys 차단", "cat .env.keys", false},
 		{"평문 .env 읽기 차단", "cat .env", false},
@@ -164,9 +166,10 @@ func TestDenyReasonContainsRemedy(t *testing.T) {
 	// 거부만 하면 에이전트가 우회를 시도한다. 대안을 반드시 담는다.
 	e := engineWith(map[string]EnvFileKind{"/p/.env": EnvPlaintext})
 	cases := map[string]string{
-		"dotenvx get K":   "dotenvx run",
-		"dotenvx keypair": "dotenvx run",
-		"cat .env":        "aeg init",
+		"dotenvx get K":           "dotenvx run",
+		"dotenvx keypair":         "dotenvx run",
+		"dotenvx run -- printenv": "dotenvx run",
+		"cat .env":                "aeg init",
 	}
 	for cmd, want := range cases {
 		got := e.Decide(ToolCall{Kind: ToolBash, Command: cmd, Cwd: "/p"})

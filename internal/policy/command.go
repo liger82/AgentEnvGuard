@@ -12,7 +12,7 @@ const (
 	CmdDotenvxGet
 	CmdDotenvxDecrypt
 	CmdDotenvxKeypair
-	CmdRedactBypass
+	CmdEnvDump
 	CmdPrivateKeyEcho
 )
 
@@ -26,8 +26,8 @@ func (r CmdRisk) String() string {
 		return "CmdDotenvxDecrypt"
 	case CmdDotenvxKeypair:
 		return "CmdDotenvxKeypair"
-	case CmdRedactBypass:
-		return "CmdRedactBypass"
+	case CmdEnvDump:
+		return "CmdEnvDump"
 	case CmdPrivateKeyEcho:
 		return "CmdPrivateKeyEcho"
 	}
@@ -118,6 +118,51 @@ func splitSegments(cmd string) [][]string {
 	return segs
 }
 
+// runChild 는 dotenvx run 의 인자에서 -- 뒤의 자식 명령을 꺼낸다.
+func runChild(args []string) []string {
+	for i, tok := range args {
+		if tok == "--" {
+			return args[i+1:]
+		}
+	}
+	return nil
+}
+
+// isEnvDump 는 명령이 환경변수를 출력하는지 본다.
+//
+// dotenvx run 은 기본으로 복호화한 평문 값을 그대로 주입한다(--redact,
+// --mask 는 선택). 따라서 dotenvx run -- printenv 는 볼트 전체를 평문으로
+// 출력한다. printenv 는 인자가 있어도(printenv NAME) 값을 출력한다.
+// env 는 뒤에 실행할 명령이 오면 출력하지 않으므로 옵션·VAR=값 만 있을 때만
+// 덤프로 본다. set, export, declare 는 위치 인자가 없을 때만 덤프로 본다.
+func isEnvDump(child []string) bool {
+	if len(child) == 0 {
+		return false
+	}
+	rest := child[1:]
+	switch filepath.Base(child[0]) {
+	case "printenv":
+		return true
+	case "env":
+		for _, tok := range rest {
+			if !strings.HasPrefix(tok, "-") && !strings.Contains(tok, "=") {
+				return false
+			}
+		}
+		return true
+	case "set":
+		return len(rest) == 0
+	case "export", "declare":
+		for _, tok := range rest {
+			if !strings.HasPrefix(tok, "-") {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // AnalyzeCommand 는 Bash 명령 문자열을 훑어 위험 패턴과 읽으려는 경로를 찾는다.
 //
 // 문자열 매칭이므로 d=dotenvx; $d get X 같은 우회는 잡지 못한다.
@@ -126,18 +171,7 @@ func AnalyzeCommand(cmd string) CmdFinding {
 	f := CmdFinding{Risk: CmdSafe}
 
 	for _, fields := range splitSegments(cmd) {
-
-		// 위험 플래그는 세그먼트 어디에 있어도 잡는다.
-		for i, tok := range fields {
-			if tok == "--no-redact" {
-				f.Risk = CmdRedactBypass
-			}
-			if tok == "--mask" && i+1 < len(fields) && fields[i+1] == "0" {
-				f.Risk = CmdRedactBypass
-			}
-			if strings.HasPrefix(tok, "--mask=") && strings.HasSuffix(tok, "=0") {
-				f.Risk = CmdRedactBypass
-			}
+		for _, tok := range fields {
 			if strings.Contains(tok, "DOTENV_PRIVATE_KEY") {
 				f.Risk = CmdPrivateKeyEcho
 			}
@@ -153,6 +187,10 @@ func AnalyzeCommand(cmd string) CmdFinding {
 			case "keypair":
 				// dotenvx keypair 는 DOTENV_PRIVATE_KEY 를 그대로 출력한다.
 				f.Risk = CmdDotenvxKeypair
+			case "run":
+				if isEnvDump(runChild(fields[2:])) {
+					f.Risk = CmdEnvDump
+				}
 			}
 		}
 

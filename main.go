@@ -17,7 +17,7 @@ const usage = `aeg — 코딩 에이전트가 시크릿 평문을 읽지 못하�
   aeg init [경로]     프로젝트 하나를 dotenvx 로 마이그레이션한다
   aeg hook           훅이 내부적으로 호출한다. 직접 쓰지 않는다
 
-시크릿 저장·주입·마스킹은 dotenvx 가 한다. aeg 는 그 위의 가드레일이다.
+시크릿 저장·암호화·주입은 dotenvx 가 한다. aeg 는 그 위의 가드레일이다.
 `
 
 func main() {
