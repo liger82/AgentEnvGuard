@@ -10,6 +10,9 @@ import (
 // ClaudeCode 는 Claude Code 의 PreToolUse 훅 규약을 다룬다.
 type ClaudeCode struct{}
 
+// ClaudeCode 가 Adapter 를 구현하는지 컴파일 시점에 확인한다.
+var _ Adapter = ClaudeCode{}
+
 type preToolUseInput struct {
 	Cwd       string `json:"cwd"`
 	ToolName  string `json:"tool_name"`

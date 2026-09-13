@@ -60,7 +60,7 @@ func Init(dir string, run Runner, stdout io.Writer) error {
 	if _, err := run(dir, "dotenvx", "--version"); err != nil {
 		return fmt.Errorf(`dotenvx 가 설치되어 있지 않습니다.
 
-  brew install dotenvx
+  brew install dotenvx/brew/dotenvx
 
 또는 https://dotenvx.com 의 설치 방법을 따르세요`)
 	}

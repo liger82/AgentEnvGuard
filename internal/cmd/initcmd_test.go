@@ -100,8 +100,8 @@ func TestInitFailsWithoutDotenvx(t *testing.T) {
 	if err == nil {
 		t.Fatal("dotenvx 가 없는데 성공했다")
 	}
-	if !strings.Contains(err.Error(), "dotenvx") {
-		t.Errorf("설치 안내가 없다: %v", err)
+	if !strings.Contains(err.Error(), "brew install dotenvx/brew/dotenvx") {
+		t.Errorf("올바른 brew 설치 안내가 없다: %v", err)
 	}
 }
 
