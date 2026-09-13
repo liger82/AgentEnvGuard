@@ -27,6 +27,16 @@ func main() {
 	switch os.Args[1] {
 	case "hook":
 		os.Exit(cmd.Hook(os.Stdin, os.Stdout, os.Stderr, policy.New()))
+	case "install":
+		bin, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "aeg: 실행 파일 경로를 찾을 수 없습니다: %v\n", err)
+			os.Exit(1)
+		}
+		if err := cmd.Install(cmd.SettingsPath(), bin, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "aeg: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "aeg: 알 수 없는 명령 %q\n\n", os.Args[1])
 		fmt.Fprint(os.Stderr, usage)
