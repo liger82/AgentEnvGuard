@@ -1,0 +1,13 @@
+# 빌드 산출물
+/aeg
+/dist/
+
+# 에디터
+*.swp
+*.swo
+.DS_Store
+
+# 이 저장소는 시크릿을 담지 않는다. 실수 방지용.
+.env
+.env.keys
+.env.local
