@@ -102,12 +102,15 @@ func TestEmitDeny(t *testing.T) {
 	}
 }
 
-func TestEmitAllow(t *testing.T) {
+// TestEmitAllowWritesNothing 은 허용 판정에서 아무것도 출력하지 않는지 본다.
+// permissionDecision: "allow" 는 Claude Code 의 권한 확인 프롬프트를 건너뛰게
+// 하므로, 내보내면 aeg 설치만으로 모든 Bash 호출이 자동 승인된다.
+func TestEmitAllowWritesNothing(t *testing.T) {
 	var buf bytes.Buffer
 	if err := (ClaudeCode{}).Emit(&buf, policy.Decision{Allow: true}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), `"allow"`) {
-		t.Errorf("allow 가 아니다: %s", buf.String())
+	if buf.Len() != 0 {
+		t.Errorf("허용인데 출력이 있다: %s", buf.String())
 	}
 }

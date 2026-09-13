@@ -54,8 +54,8 @@ func TestHookAllowsNormalCommand(t *testing.T) {
 	if code := Hook(strings.NewReader(in), &out, &errOut, testEngine(nil)); code != 0 {
 		t.Errorf("종료코드 = %d, want 0", code)
 	}
-	if !strings.Contains(out.String(), `"allow"`) {
-		t.Errorf("허용되지 않았다: %s", out.String())
+	if out.Len() != 0 {
+		t.Errorf("허용인데 출력이 있다 (allow 를 내면 권한 프롬프트가 사라진다): %s", out.String())
 	}
 }
 
@@ -65,8 +65,8 @@ func TestHookFailsOpenOnMalformedInput(t *testing.T) {
 	if code != 0 {
 		t.Errorf("종료코드 = %d, want 0", code)
 	}
-	if !strings.Contains(out.String(), `"allow"`) {
-		t.Errorf("파싱 실패 시 통과시켜야 한다: %s", out.String())
+	if out.Len() != 0 {
+		t.Errorf("파싱 실패 시 판정 없이 통과시켜야 한다: %s", out.String())
 	}
 	if errOut.Len() == 0 {
 		t.Error("stderr 에 경고를 남겨야 한다")
@@ -83,13 +83,17 @@ func TestHookFailsOpenOnPanic(t *testing.T) {
 	if code != 0 {
 		t.Errorf("종료코드 = %d, want 0", code)
 	}
-	if !strings.Contains(out.String(), `"allow"`) {
-		t.Errorf("패닉 시 통과시켜야 한다: %s", out.String())
+	if out.Len() != 0 {
+		t.Errorf("패닉 시 판정 없이 통과시켜야 한다: %s", out.String())
+	}
+	if errOut.Len() == 0 {
+		t.Error("stderr 에 경고를 남겨야 한다")
 	}
 }
 
 func TestHookFailsOpenOnEmitError(t *testing.T) {
-	in := `{"cwd":"/p","tool_name":"Bash","tool_input":{"command":"go test ./..."}}`
+	// 허용은 아무것도 쓰지 않으므로 쓰기 실패를 보려면 차단 입력이 필요하다.
+	in := `{"cwd":"/p","tool_name":"Bash","tool_input":{"command":"cat .env.keys"}}`
 	var errOut bytes.Buffer
 	code := Hook(strings.NewReader(in), errWriter{}, &errOut, testEngine(nil))
 	if code != 0 {
@@ -101,7 +105,7 @@ func TestHookFailsOpenOnEmitError(t *testing.T) {
 }
 
 func TestHookFailsOpenOnEmitPanic(t *testing.T) {
-	in := `{"cwd":"/p","tool_name":"Bash","tool_input":{"command":"go test ./..."}}`
+	in := `{"cwd":"/p","tool_name":"Bash","tool_input":{"command":"cat .env.keys"}}`
 	var errOut bytes.Buffer
 	code := Hook(strings.NewReader(in), panicWriter{}, &errOut, testEngine(nil))
 	if code != 0 {

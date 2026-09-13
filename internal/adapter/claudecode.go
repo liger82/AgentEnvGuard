@@ -54,15 +54,20 @@ type preToolUseOutput struct {
 	HookSpecificOutput hookSpecificOutput `json:"hookSpecificOutput"`
 }
 
+// Emit 은 차단 판정만 JSON 으로 내보낸다. 허용이면 아무것도 쓰지 않는다.
+//
+// permissionDecision: "allow" 는 "판정 없음"이 아니라 Claude Code 의 권한
+// 확인 프롬프트를 건너뛰는 적극적 승인이다. 이것을 내보내면 aeg 설치만으로
+// rm -rf 같은 모든 Bash 호출이 자동 승인된다. 출력이 없으면 평소의 권한
+// 흐름이 그대로 적용된다.
 func (ClaudeCode) Emit(w io.Writer, d policy.Decision) error {
-	decision := "deny"
 	if d.Allow {
-		decision = "allow"
+		return nil
 	}
 	return json.NewEncoder(w).Encode(preToolUseOutput{
 		HookSpecificOutput: hookSpecificOutput{
 			HookEventName:            "PreToolUse",
-			PermissionDecision:       decision,
+			PermissionDecision:       "deny",
 			PermissionDecisionReason: d.Reason,
 		},
 	})
