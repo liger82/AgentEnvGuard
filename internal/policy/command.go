@@ -118,6 +118,17 @@ func splitSegments(cmd string) [][]string {
 	return segs
 }
 
+// isDotenvxToken 은 토큰이 dotenvx 실행 파일을 가리키는지 본다.
+// dotenvx, /opt/homebrew/bin/dotenvx, @dotenvx/dotenvx, dotenvx@latest,
+// @dotenvx/dotenvx@1.2.3 을 모두 dotenvx 로 본다.
+func isDotenvxToken(tok string) bool {
+	base := filepath.Base(tok)
+	if at := strings.Index(base, "@"); at > 0 {
+		base = base[:at]
+	}
+	return base == "dotenvx"
+}
+
 // runChild 는 dotenvx run 의 인자에서 -- 뒤의 자식 명령을 꺼낸다.
 func runChild(args []string) []string {
 	for i, tok := range args {
@@ -177,9 +188,13 @@ func AnalyzeCommand(cmd string) CmdFinding {
 			}
 		}
 
-		base := filepath.Base(fields[0])
-		if base == "dotenvx" && len(fields) > 1 {
-			switch fields[1] {
+		// npx, bunx, pnpm exec, sudo, env VAR=1 같은 래퍼 뒤에 와도 잡도록
+		// dotenvx 토큰을 세그먼트 어디서든 찾는다.
+		for i, tok := range fields {
+			if !isDotenvxToken(tok) || i+1 >= len(fields) {
+				continue
+			}
+			switch fields[i+1] {
 			case "get":
 				f.Risk = CmdDotenvxGet
 			case "decrypt":
@@ -188,11 +203,13 @@ func AnalyzeCommand(cmd string) CmdFinding {
 				// dotenvx keypair 는 DOTENV_PRIVATE_KEY 를 그대로 출력한다.
 				f.Risk = CmdDotenvxKeypair
 			case "run":
-				if isEnvDump(runChild(fields[2:])) {
+				if isEnvDump(runChild(fields[i+2:])) {
 					f.Risk = CmdEnvDump
 				}
 			}
 		}
+
+		base := filepath.Base(fields[0])
 
 		// 리다이렉션(<)은 어떤 명령이든 파일 내용을 끌어온다.
 		redirected := false

@@ -34,6 +34,18 @@ func TestAnalyzeCommandRisk(t *testing.T) {
 		{"private key echo", "echo $DOTENV_PRIVATE_KEY", CmdPrivateKeyEcho},
 		{"private key printenv", "printenv DOTENV_PRIVATE_KEY", CmdPrivateKeyEcho},
 
+		{"npx scoped get", "npx @dotenvx/dotenvx get HELLO", CmdDotenvxGet},
+		{"npx 버전 지정 get", "npx @dotenvx/dotenvx@1.2.3 get HELLO", CmdDotenvxGet},
+		{"npx decrypt", "npx dotenvx decrypt --stdout", CmdDotenvxDecrypt},
+		{"npx -y keypair", "npx -y dotenvx@latest keypair", CmdDotenvxKeypair},
+		{"bunx get", "bunx @dotenvx/dotenvx get K", CmdDotenvxGet},
+		{"pnpm exec decrypt", "pnpm exec dotenvx decrypt", CmdDotenvxDecrypt},
+		{"pnpm dlx get", "pnpm dlx @dotenvx/dotenvx get K", CmdDotenvxGet},
+		{"sudo get", "sudo dotenvx get K", CmdDotenvxGet},
+		{"env 할당 뒤 get", "env FOO=1 dotenvx get K", CmdDotenvxGet},
+		{"npx run -- printenv", "npx @dotenvx/dotenvx run -- printenv", CmdEnvDump},
+		{"npx 정상 run", "npx @dotenvx/dotenvx run -- node a.js", CmdSafe},
+
 		{"정상 run", "dotenvx run -- python 06_Scripts/fetch.py", CmdSafe},
 		{"정상 set", "dotenvx set DART_API_KEY abc", CmdSafe},
 		{"무관한 명령", "ls -la", CmdSafe},

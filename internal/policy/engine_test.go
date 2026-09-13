@@ -117,6 +117,8 @@ func TestDecideBash(t *testing.T) {
 		{"dotenvx get 차단", "dotenvx get DART_API_KEY", false},
 		{"dotenvx decrypt 차단", "dotenvx decrypt --stdout", false},
 		{"dotenvx keypair 차단", "dotenvx keypair", false},
+		{"npx dotenvx get 차단", "npx @dotenvx/dotenvx get X", false},
+		{"sudo dotenvx decrypt 차단", "sudo dotenvx decrypt --stdout", false},
 		{"run -- printenv 차단", "dotenvx run -- printenv", false},
 		{"run -- env 차단", "dotenvx run -- env", false},
 		{"run -f -- printenv X 차단", "dotenvx run -f .env.production -- printenv X", false},
