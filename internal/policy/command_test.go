@@ -101,6 +101,12 @@ func TestAnalyzeCommandPaths(t *testing.T) {
 		{"큰따옴표 안 다른 백슬래시는 글자 그대로", `cat "a\b/.env"`, []string{`a\b/.env`}},
 		{"줄 이음 백슬래시", "cat \\\n.env", []string{".env"}},
 
+		{"붙여 쓴 출력 리다이렉션", "cat .env.keys>/tmp/x", []string{".env.keys"}},
+		{"fd 리다이렉션", "cat .env 2>&1", []string{".env"}},
+		{"출력 대상은 읽기 경로가 아니다", "cat foo > .env", nil},
+		{"따옴표 안의 > 는 연산자가 아니다", `grep ">" .env`, []string{".env"}},
+		{"here-string 은 파일이 아니다", "cat <<< .env", nil},
+
 		{"읽기 명령이 아니면 무시", "rm .env", nil},
 		{"echo 는 무시", "echo .env 를 확인하세요", nil},
 		{"dotenvx run 은 무시", "dotenvx run -- python x.py", nil},

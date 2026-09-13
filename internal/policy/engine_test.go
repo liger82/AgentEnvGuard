@@ -220,6 +220,38 @@ func TestDecideBashBackslashEscapes(t *testing.T) {
 	}
 }
 
+// 리다이렉션 연산자는 붙여 써도 앞뒤 토큰과 분리해야 한다. 출력 리다이렉션의
+// 대상은 읽기가 아니므로 그 자체로 차단 사유가 되지 않는다.
+func TestDecideBashRedirections(t *testing.T) {
+	e := engineWith(map[string]EnvFileKind{"/p/.env": EnvPlaintext})
+	tests := []struct {
+		name      string
+		cmd       string
+		wantAllow bool
+	}{
+		{"붙여 쓴 > 앞의 .env.keys", "cat .env.keys>/tmp/x", false},
+		{"붙여 쓴 >> 앞의 .env.keys", "cat .env.keys>>out", false},
+		{"2> 와 함께", "cat .env.keys 2>/dev/null", false},
+		{"&> 붙여 쓰기", "cat .env.keys&>log", false},
+		{"2>&1 뒤 파이프", "cat .env 2>&1 | head", false},
+		{"붙여 쓴 > 앞의 평문 .env", "cat .env>/tmp/x", false},
+
+		{"출력 리다이렉션만", "echo hi>out.txt", true},
+		{"출력 대상이 평문 .env", "echo hi > .env", true},
+		{"붙여 쓴 출력 대상이 평문 .env", "echo hi>.env", true},
+		{"cat 의 출력 대상이 평문 .env", "cat foo.txt > .env", true},
+		{"cat 의 추가 출력 대상이 평문 .env", "cat foo.txt >> .env", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := e.Decide(ToolCall{Kind: ToolBash, Command: tt.cmd, Cwd: "/p"})
+			if got.Allow != tt.wantAllow {
+				t.Errorf("%s: Allow = %v, want %v (reason: %s)", tt.cmd, got.Allow, tt.wantAllow, got.Reason)
+			}
+		})
+	}
+}
+
 func TestDecideRelativePathResolvedAgainstCwd(t *testing.T) {
 	e := engineWith(map[string]EnvFileKind{"/proj/.env": EnvPlaintext})
 	got := e.Decide(ToolCall{Kind: ToolFileRead, Path: ".env", Cwd: "/proj"})

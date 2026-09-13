@@ -53,6 +53,26 @@ var readerCommands = map[string]bool{
 	"paste": true, "column": true, "jq": true, "yq": true,
 }
 
+// segment 는 셸 명령 하나(구분자 사이)를 토큰으로 자른 결과다.
+type segment struct {
+	// words 는 리다이렉션을 뺀 명령과 인자다.
+	words []string
+	// inputs 는 입력 리다이렉션(<, <>)의 대상 — 명령이 내용을 읽는 파일이다.
+	inputs []string
+	// others 는 나머지 리다이렉션 대상이다. 출력 파일(>, >>, &>), fd 복제
+	// (>&1), heredoc 구분자(<<), here-string(<<<) 은 읽기가 아니다.
+	others []string
+}
+
+// redirKind 는 직전에 읽은 리다이렉션 연산자가 다음 토큰을 어디로 보낼지다.
+type redirKind int
+
+const (
+	redirNone redirKind = iota
+	redirInput
+	redirOther
+)
+
 // splitSegments 는 명령 문자열을 셸 명령 단위(세그먼트)로 나누고, 각
 // 세그먼트를 토큰으로 자른다.
 //
@@ -62,27 +82,49 @@ var readerCommands = map[string]bool{
 // 나누지 않는다. 백슬래시는 bash 규칙을 따른다 — 따옴표 밖에서는 다음 바이트를
 // 이스케이프하고, 큰따옴표 안에서는 " \ $ ` 와 줄바꿈만, 작은따옴표 안에서는
 // 아무것도 이스케이프하지 않는다. 변수 확장까지 흉내 내지는 않는다.
-func splitSegments(cmd string) [][]string {
+//
+// 따옴표 밖의 리다이렉션 연산자(<, >, >>, <<<, 2>, &>, >&, 2>&1 등)는 붙여
+// 써도 앞뒤 토큰과 떼어내고, 그 대상 토큰은 words 가 아니라 inputs/others 로
+// 보낸다.
+func splitSegments(cmd string) []segment {
 	var (
-		segs  [][]string
-		toks  []string
-		cur   strings.Builder
-		inTok bool
-		quote byte
+		segs    []segment
+		seg     segment
+		cur     strings.Builder
+		inTok   bool
+		literal bool // 현재 토큰에 따옴표나 이스케이프가 쓰였다 — fd 번호가 아니다
+		quote   byte
+		pending redirKind
 	)
 	flushTok := func() {
-		if inTok {
-			toks = append(toks, cur.String())
-			cur.Reset()
-			inTok = false
+		if !inTok {
+			return
 		}
+		switch pending {
+		case redirInput:
+			seg.inputs = append(seg.inputs, cur.String())
+		case redirOther:
+			seg.others = append(seg.others, cur.String())
+		default:
+			seg.words = append(seg.words, cur.String())
+		}
+		pending = redirNone
+		cur.Reset()
+		inTok, literal = false, false
 	}
 	flushSeg := func() {
 		flushTok()
-		if len(toks) > 0 {
-			segs = append(segs, toks)
-			toks = nil
+		pending = redirNone
+		if len(seg.words)+len(seg.inputs)+len(seg.others) > 0 {
+			segs = append(segs, seg)
+			seg = segment{}
 		}
+	}
+	peek := func(i int) byte {
+		if i < len(cmd) {
+			return cmd[i]
+		}
+		return 0
 	}
 
 	// 바이트 단위로 훑는다. 구분자는 모두 ASCII 이고 UTF-8 의 다바이트 문자는
@@ -102,7 +144,7 @@ func splitSegments(cmd string) [][]string {
 			switch {
 			case c == '"':
 				quote = 0
-			case c == '\\' && i+1 < len(cmd) && cmd[i+1] == '\n':
+			case c == '\\' && peek(i+1) == '\n':
 				i++ // 줄 이음: 백슬래시와 줄바꿈 둘 다 사라진다
 			case c == '\\' && i+1 < len(cmd) && strings.IndexByte("\"\\$`", cmd[i+1]) >= 0:
 				// 큰따옴표 안에서는 " \ $ ` 만 이스케이프된다.
@@ -113,41 +155,71 @@ func splitSegments(cmd string) [][]string {
 			}
 			continue
 		}
-		switch c {
-		case '\\':
+		switch {
+		case c == '\\':
 			// 따옴표 밖의 백슬래시는 다음 바이트를 글자 그대로 만든다.
 			// 맨 끝에 홀로 남은 백슬래시는 그대로 둔다.
 			switch {
 			case i+1 >= len(cmd):
 				cur.WriteByte(c)
-				inTok = true
 			case cmd[i+1] == '\n':
 				i++ // 줄 이음
+				continue
 			default:
 				cur.WriteByte(cmd[i+1])
-				inTok = true
 				i++
 			}
-		case '\'', '"':
+			inTok, literal = true, true
+		case c == '\'' || c == '"':
 			quote = c
-			inTok = true
-		case ' ', '\t':
+			inTok, literal = true, true
+		case c == ' ' || c == '\t':
 			flushTok()
-		case '\n', ';', '|':
+		case c == '\n' || c == ';' || c == '|':
 			flushSeg()
-		case '<':
-			// cat<.env 처럼 붙여 써도 리다이렉션 대상을 따로 보도록 < 를
-			// 독립 토큰으로 떼어낸다.
-			flushTok()
-			toks = append(toks, "<")
-		case '&':
-			// 2>&1, &> 같은 리다이렉션의 & 는 구분자가 아니다.
-			if (i > 0 && (cmd[i-1] == '>' || cmd[i-1] == '<')) || (i+1 < len(cmd) && cmd[i+1] == '>') {
-				cur.WriteByte(c)
-				inTok = true
+		case c == '<' || c == '>' || (c == '&' && peek(i+1) == '>'):
+			// 2> 의 2 처럼 연산자에 붙은 숫자만으로 된 토큰은 fd 번호다.
+			if inTok && !literal && isDigits(cur.String()) {
+				cur.Reset()
+				inTok = false
 			} else {
-				flushSeg()
+				flushTok()
 			}
+			op := string(c)
+			switch c {
+			case '&': // &>, &>>
+				op += ">"
+				i++
+				if peek(i+1) == '>' {
+					op += ">"
+					i++
+				}
+			case '>': // >>, >&, >|
+				if n := peek(i + 1); n == '>' || n == '&' || n == '|' {
+					op += string(n)
+					i++
+				}
+			case '<': // <<, <<-, <<<, <&, <>
+				switch n := peek(i + 1); n {
+				case '<':
+					op += "<"
+					i++
+					if m := peek(i + 1); m == '<' || m == '-' {
+						op += string(m)
+						i++
+					}
+				case '&', '>':
+					op += string(n)
+					i++
+				}
+			}
+			if op == "<" || op == "<>" {
+				pending = redirInput
+			} else {
+				pending = redirOther
+			}
+		case c == '&':
+			flushSeg()
 		default:
 			cur.WriteByte(c)
 			inTok = true
@@ -155,6 +227,18 @@ func splitSegments(cmd string) [][]string {
 	}
 	flushSeg()
 	return segs
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // isDotenvxToken 은 토큰이 dotenvx 실행 파일을 가리키는지 본다.
@@ -220,12 +304,16 @@ func isEnvDump(child []string) bool {
 func AnalyzeCommand(cmd string) CmdFinding {
 	f := CmdFinding{Risk: CmdSafe}
 
-	for _, fields := range splitSegments(cmd) {
-		for _, tok := range fields {
-			if strings.Contains(tok, "DOTENV_PRIVATE_KEY") {
-				f.Risk = CmdPrivateKeyEcho
+	for _, seg := range splitSegments(cmd) {
+		for _, list := range [][]string{seg.words, seg.inputs, seg.others} {
+			for _, tok := range list {
+				if strings.Contains(tok, "DOTENV_PRIVATE_KEY") {
+					f.Risk = CmdPrivateKeyEcho
+				}
 			}
 		}
+
+		fields := seg.words
 
 		// npx, bunx, pnpm exec, sudo, env VAR=1 같은 래퍼 뒤에 와도 잡도록
 		// dotenvx 토큰을 세그먼트 어디서든 찾는다.
@@ -248,20 +336,17 @@ func AnalyzeCommand(cmd string) CmdFinding {
 			}
 		}
 
-		base := filepath.Base(fields[0])
-
-		// 리다이렉션(<)은 어떤 명령이든 파일 내용을 끌어온다.
+		// 입력 리다이렉션(<)은 어떤 명령이든 파일 내용을 끌어온다.
+		// 출력 리다이렉션 대상은 읽기가 아니므로 보지 않는다.
 		redirected := false
-		for i, tok := range fields {
-			if tok == "<" && i+1 < len(fields) {
-				if k := ClassifyPath(fields[i+1]); k == PathEnvKeys || k == PathEnvFile {
-					f.Paths = append(f.Paths, fields[i+1])
-					redirected = true
-				}
+		for _, tok := range seg.inputs {
+			if k := ClassifyPath(tok); k == PathEnvKeys || k == PathEnvFile {
+				f.Paths = append(f.Paths, tok)
+				redirected = true
 			}
 		}
 
-		if !readerCommands[base] || redirected {
+		if len(fields) == 0 || !readerCommands[filepath.Base(fields[0])] || redirected {
 			continue
 		}
 		for _, tok := range fields[1:] {
