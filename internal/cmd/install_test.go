@@ -196,6 +196,116 @@ func TestInstallCreatesMissingSettings(t *testing.T) {
 	}
 }
 
+// 백업은 설치 전 최초 상태를 보존해야 한다. 두 번째 설치가 이미 aeg 가
+// 들어간 파일로 백업을 덮어쓰면 되돌릴 원본이 사라진다.
+func TestInstallDoesNotOverwriteExistingBackup(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "settings.json")
+	original := `{"model":"opus"}`
+	if err := os.WriteFile(p, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := Install(p, "/usr/local/bin/aeg", &out); err != nil {
+		t.Fatal(err)
+	}
+	// 경로가 달라 실제로 변경이 일어나는 두 번째 설치
+	if err := Install(p, "/opt/bin/aeg", &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(mustRead(t, p+".aeg-backup")); got != original {
+		t.Errorf("백업이 덮어써졌다:\n%s", got)
+	}
+}
+
+func TestInstallNoChangeDoesNotWriteBackup(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "settings.json")
+	once, _, err := MergeHook([]byte(`{}`), "/usr/local/bin/aeg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, once, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := Install(p, "/usr/local/bin/aeg", &out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p + ".aeg-backup"); !os.IsNotExist(err) {
+		t.Errorf("바뀐 것이 없는데 백업을 만들었다: %v", err)
+	}
+}
+
+func TestInstallInvalidJSONLeavesFilesUntouched(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(p, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p+".aeg-backup", []byte(`{"model":"opus"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := Install(p, "/usr/local/bin/aeg", &out); err == nil {
+		t.Fatal("깨진 JSON 인데 성공했다")
+	}
+	if got := string(mustRead(t, p+".aeg-backup")); got != `{"model":"opus"}` {
+		t.Errorf("깨진 JSON 으로 백업을 덮어썼다: %s", got)
+	}
+	if got := string(mustRead(t, p)); got != "{not json" {
+		t.Errorf("settings.json 을 덮어썼다: %s", got)
+	}
+}
+
+func TestInstallNullSettings(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(p, []byte("null\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := Install(p, "/usr/local/bin/aeg", &out); err != nil {
+		t.Fatal(err)
+	}
+	if cmds := hookCommands(t, mustRead(t, p)); len(cmds) != 1 {
+		t.Errorf("null 파일에 설치되지 않았다: %v", cmds)
+	}
+}
+
+func TestMergeHookRejectsNonObjectTopLevel(t *testing.T) {
+	for _, in := range []string{`[]`, `"x"`, `42`} {
+		if _, _, err := MergeHook([]byte(in), "/usr/local/bin/aeg"); err == nil {
+			t.Errorf("최상위가 객체가 아닌 %s 에 에러가 없다", in)
+		}
+	}
+}
+
+func TestInstallPreservesFileMode(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(p, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := Install(p, "/usr/local/bin/aeg", &out); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("파일 모드 = %v, want 0600", fi.Mode().Perm())
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.Name() != "settings.json" && e.Name() != "settings.json.aeg-backup" {
+			t.Errorf("임시 파일이 남았다: %s", e.Name())
+		}
+	}
+}
+
 func mustRead(t *testing.T, p string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(p)
