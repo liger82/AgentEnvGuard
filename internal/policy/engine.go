@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -48,6 +49,17 @@ func (e *Engine) Decide(tc ToolCall) Decision {
 	default:
 		return allow()
 	}
+}
+
+// DecideUnparsed 는 훅 입력을 파싱하지 못했을 때의 판정이다.
+//
+// 판정 불가는 통과시키는 것이 원칙(fail-open)이지만, 원본 바이트에
+// .env.keys 가 들어 있으면 판정이 명확하므로 파싱 실패와 무관하게 차단한다.
+func DecideUnparsed(raw []byte) Decision {
+	if bytes.Contains(raw, []byte(".env.keys")) {
+		return deny(msgEnvKeys, ".env.keys")
+	}
+	return allow()
 }
 
 func (e *Engine) abs(p, cwd string) string {

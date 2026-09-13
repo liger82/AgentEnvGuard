@@ -73,6 +73,20 @@ func TestHookFailsOpenOnMalformedInput(t *testing.T) {
 	}
 }
 
+// 스펙의 예외: .env.keys 매칭처럼 판정이 명확한 경우는 파싱 실패와 무관하게
+// 차단한다.
+func TestHookDeniesEnvKeysEvenWhenParseFails(t *testing.T) {
+	in := `{"cwd":"/p","tool_name":"Bash","tool_input":{"command":"cat .env.keys"` // 닫는 괄호 없음
+	var out, errOut bytes.Buffer
+	code := Hook(strings.NewReader(in), &out, &errOut, testEngine(nil))
+	if code != 0 {
+		t.Errorf("종료코드 = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), `"deny"`) {
+		t.Errorf("파싱 실패여도 .env.keys 는 차단해야 한다: %s", out.String())
+	}
+}
+
 func TestHookFailsOpenOnPanic(t *testing.T) {
 	e := &policy.Engine{
 		ClassifyFile: func(string) policy.EnvFileKind { panic("의도적 패닉") },
