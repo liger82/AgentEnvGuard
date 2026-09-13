@@ -62,7 +62,7 @@ TypeScript/Node. 시크릿을 OS 키체인에 저장한다. 확인 결과 다음
 | 요구 | dotenvx |
 |---|---|
 | 임의 자식 프로세스 주입 | `dotenvx run -- python3 x.py` |
-| 자식 출력 마스킹 | `--redact` (기본 동작, `--mask 0` 지원) |
+| 주입 값 가리기 (선택) | `--redact`, `--mask` — **기본은 평문 값을 그대로 주입** |
 | 이식 가능한 볼트 | ECIES/secp256k1 암호화 `.env`, 커밋 가능 |
 | 헤드리스 동작 | OS 키체인 / `.env.keys` / `DOTENV_PRIVATE_KEY` |
 | 배포 | 단일 바이너리, brew·curl·winget·npm·docker |
@@ -88,10 +88,16 @@ DOTENV_PRIVATE_KEY="122...0b8"
 
 ### 남는 공백 = 이 프로젝트의 범위
 
-dotenvx는 볼트·주입·마스킹을 준다. 하지만 에이전트에게 다음을 강제하지 않는다.
+dotenvx는 볼트·주입을 준다. 하지만 에이전트에게 다음을 강제하지 않는다.
 
 - `.env` 를 직접 읽지 말고 `dotenvx run --` 로 실행할 것
-- `dotenvx get` / `decrypt` / `.env.keys` 읽기를 하지 말 것
+- `dotenvx get` / `decrypt` / `keypair` / `.env.keys` 읽기를 하지 말 것
+- `dotenvx run -- printenv` 처럼 주입된 환경변수를 출력하지 말 것
+
+(dotenvx 2.24.1 확인: `run` 은 기본으로 복호화한 평문 값을 주입하고,
+`--redact`·`--mask` 는 값을 가려 주입하는 선택 옵션이다. `--no-redact` 는
+존재하지 않는다. 따라서 "redact 우회 플래그"는 위협이 아니고, 실제 위협은
+자식 명령이 환경변수를 출력하는 것이다.)
 - 평문 `.env` 를 쓰는 프로젝트를 발견하고 마이그레이션할 것
 
 이 도구는 **시크릿 매니저가 아니라 에이전트용 시크릿 가드레일**이다.
@@ -102,7 +108,7 @@ dotenvx는 볼트·주입·마스킹을 준다. 하지만 에이전트에게 다
 Claude Code
   │ PreToolUse (Bash, Read, Grep)
   ▼
-훅 어댑터  ──►  판정 엔진  ──►  allow / deny + 교정 메시지
+훅 어댑터  ──►  판정 엔진  ──►  통과(출력 없음) / deny + 교정 메시지
 (도구별)        (도구 중립)
                    │
                    ├─ 명령 분류기 (위험 명령 패턴)
@@ -127,7 +133,7 @@ Go 단일 바이너리는 1~3ms다. 배포도 단일 파일이라 brew·curl 채
 | 동작 | 이유 |
 |---|---|
 | `.env` 읽기 (암호문인 경우) | 값이 ECIES 암호문이라 컨텍스트에 들어가도 무해. 에이전트가 키 이름을 파악하는 경로 |
-| `dotenvx run -- <cmd>` | 의도된 정상 경로. redact 기본값 유지 시 |
+| `dotenvx run -- <cmd>` | 의도된 정상 경로. 단 `<cmd>` 가 환경변수를 출력하면 차단(5번) |
 | `dotenvx set` | 공개키 암호라 볼트를 열지 않고 추가 가능 |
 | `.env.example`, `.env.template`, `.env.sample` 읽기 | 설계상 공개 파일 |
 
@@ -135,12 +141,22 @@ Go 단일 바이너리는 1~3ms다. 배포도 단일 파일이라 brew·curl 채
 
 | # | 대상 | 검사 위치 |
 |---|---|---|
-| 1 | `.env.keys` 접근 (`cat`, `head`, `less`, `grep`, `sed`, `awk`, `cp`, `base64` 등) | Bash, Read, Grep |
+| 1 | `.env.keys` 접근 (`cat`, `head`, `less`, `grep`, `sed`, `awk`, `cp`, `base64`, `diff`, `jq` 등, 리다이렉션 `<`) | Bash, Read, Grep (path·glob) |
 | 2 | `DOTENV_PRIVATE_KEY` 출력 (`echo`, `env`, `printenv`, `set`) | Bash |
-| 3 | `dotenvx get <KEY>` | Bash |
+| 3 | `dotenvx get <KEY>`, `dotenvx keypair` (개인키를 그대로 출력) | Bash |
 | 4 | `dotenvx decrypt` (특히 `--stdout`) | Bash |
-| 5 | redact 우회 플래그 `--no-redact`, `--mask 0` | Bash |
+| 5 | `dotenvx run [옵션] -- <환경변수 출력 명령>` — `env`·`printenv`(인자 유무 무관), 위치 인자 없는 `set`·`export -p`·`declare -x`/`-p` | Bash |
 | 6 | **평문** `.env` 읽기 | Bash, Read, Grep |
+
+Bash 판정의 공통 규칙:
+
+- 짝이 맞는 `"..."`, `'...'` 는 벗겨서 한 토큰으로 본다. 따옴표 안의 공백과
+  구분자(`&&`, `||`, `;`, `|`, 줄바꿈)는 토큰·명령을 나누지 않는다.
+- 3~5번의 `dotenvx` 는 명령 첫 토큰이 아니어도 찾는다. `npx`, `bunx`,
+  `pnpm exec`/`dlx`, `sudo`, `env VAR=1` 같은 래퍼 뒤의 `dotenvx`,
+  `@dotenvx/dotenvx`, `@버전` 접미어를 모두 같게 본다.
+- 경로 토큰의 선두 `~`, `$HOME`, `${HOME}` 은 홈 디렉터리로 펼친다.
+- `cat<.env` 처럼 붙여 쓴 리다이렉션도 대상 경로를 본다.
 
 ### Grep 을 반드시 포함한다
 
@@ -198,6 +214,11 @@ MVP는 네 개다.
 `~/.claude/settings.json` 에 PreToolUse 훅을 건다. 기존 설정을 보존하며
 병합하고, 멱등이라 두 번 돌려도 중복이 생기지 않는다. 노트북당 한 번.
 
+실제로 내용이 바뀔 때만 쓴다. 그때 `settings.json.aeg-backup` 이 없으면
+원본을 백업하고, 이미 있으면 덮어쓰지 않는다 — 설치 전 최초 상태가 되돌릴
+가치가 있는 상태다. 쓰기는 같은 디렉터리의 임시 파일 + rename 으로
+원자적으로 하고 기존 파일 모드를 유지한다.
+
 ### `aeg scan [경로]`
 
 기본값 홈 디렉터리 아래를 훑어 평문 `.env` 를 쓰는 프로젝트를 목록으로 낸다.
@@ -205,6 +226,15 @@ MVP는 네 개다.
 "노트북 전반"이라는 요구에 직접 답하는 명령이고 실질적 첫 실행 경험이다.
 
 `node_modules`, `.git`, `vendor`, `dist`, `build` 는 건너뛴다.
+
+보고는 세 종류로 나눈다.
+
+- 평문 `.env` → `aeg init` 안내
+- 평문 `.env.*` 변형(`.env.local`, `.env.production` 등, example 류 제외) →
+  `aeg init` 은 `.env` 만 다루므로 `dotenvx encrypt -f <파일>` 안내
+- `.env.keys` → 평문 시크릿으로 보고하지 않는다. 같은 디렉터리의
+  `.gitignore` 에 `.env.keys` 가 없을 때만 커밋 위험으로 보고하고
+  `.gitignore` 추가를 안내한다. 마이그레이션을 마친 프로젝트는 깨끗하게 나온다.
 
 ### `aeg init [경로]`
 
@@ -252,7 +282,9 @@ Claude Code 공식 문서로 확인한 규약이다.
 ```
 
 도구별 `tool_input`: Bash 는 `command`, Read 는 `file_path`,
-Grep 은 `pattern` 과 `path`.
+Grep 은 `pattern`, `path`, `glob`. Grep 의 `glob` 을 path(없으면 cwd)와
+합친 결과가 `.env.keys` 로 분류되면(`.env.keys`, `.env.keys*`,
+`**/.env.keys`) 차단한다.
 
 **출력은 JSON 방식을 쓴다.** exit 2 + stderr 도 차단이 되지만 채택하지 않는다.
 
@@ -308,6 +340,7 @@ type ToolCall struct {
     Command string // Bash
     Path    string // FileRead, ContentSearch
     Pattern string // ContentSearch
+    Glob    string // ContentSearch
     Cwd     string
 }
 
@@ -336,11 +369,16 @@ type Adapter interface {
 패닉은 최상위에서 recover 하여 출력 없이 끝낸다. 경고는 stderr 에 남긴다.
 
 예외: `.env.keys` 경로 매칭처럼 판정이 명확한 경우는 파싱 실패와 무관하게
-차단한다.
+차단한다. 구현상으로는 stdin 을 전부 읽고, JSON 파싱에 실패했을 때 원본
+바이트에 `.env.keys` 가 있으면 deny JSON 을 낸다. 이때도 exit 0 이다.
 
 - `dotenvx` 미설치: `init` 에서만 오류. 훅은 영향 없음.
 - `~/.claude/settings.json` 부재: `install` 이 생성한다.
-- `settings.json` 이 JSON이 아님: `install` 중단, 수동 수정 안내. 덮어쓰지 않는다.
+- `settings.json` 이 JSON이 아니거나 최상위가 객체가 아님: `install` 중단,
+  수동 수정 안내. 덮어쓰지 않고 백업도 건드리지 않는다. 최상위가 `null` 이면
+  빈 객체로 본다.
+- `aeg` 사용법 오류(인자 없음, 알 수 없는 명령)는 exit 1 이다. exit 2 는
+  Claude Code 훅에서 차단 신호라, 잘못 등록되면 모든 도구 호출이 막힌다.
 - `scan` 중 권한 없는 디렉터리: 건너뛰고 계속. 마지막에 건너뛴 수를 보고.
 
 ## 테스트 전략
@@ -394,4 +432,4 @@ type Adapter interface {
 구현 시작 전에 로컬에 없어서 설치해야 하는 것.
 
 - **Go** — 미설치. `brew install go`
-- **dotenvx** — 미설치. `brew install dotenvx`
+- **dotenvx** — 미설치. `brew install dotenvx/brew/dotenvx`
