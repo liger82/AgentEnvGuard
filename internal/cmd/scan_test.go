@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -78,13 +80,98 @@ func TestScanRespectsDepthLimit(t *testing.T) {
 	}
 }
 
-func TestScanFindsEnvKeys(t *testing.T) {
-	// .env.keys 는 정의상 평문 개인키다. 커밋 위험이 있으므로 보고한다.
+// .env.keys 는 dotenvx 를 제대로 쓰는 프로젝트에 항상 있으므로 평문 시크릿으로
+// 보고하지 않는다. .gitignore 에 없을 때만 커밋 위험으로 따로 보고한다.
+func TestScanEnvKeysOnlyWhenNotGitignored(t *testing.T) {
 	root := t.TempDir()
-	keys := filepath.Join(root, "p", ".env.keys")
-	write(t, keys, "DOTENV_PRIVATE_KEY=\"122\"\n")
-	if found, _ := Scan(root, DefaultDepth); !contains(paths(found), keys) {
-		t.Errorf(".env.keys 를 보고하지 않았다: %v", paths(found))
+	exposed := filepath.Join(root, "a", ".env.keys")
+	ignored := filepath.Join(root, "b", ".env.keys")
+	write(t, exposed, "DOTENV_PRIVATE_KEY=\"122\"\n")
+	write(t, ignored, "DOTENV_PRIVATE_KEY=\"122\"\n")
+	write(t, filepath.Join(root, "b", ".gitignore"), "node_modules/\n.env.keys\n")
+
+	found, _ := Scan(root, DefaultDepth)
+	kinds := map[string]FindingKind{}
+	for _, f := range found {
+		kinds[f.Path] = f.Kind
+	}
+	if k, ok := kinds[exposed]; !ok || k != FindingKeysNotIgnored {
+		t.Errorf("gitignore 에 없는 .env.keys 를 FindingKeysNotIgnored 로 보고하지 않았다: %v", found)
+	}
+	if _, ok := kinds[ignored]; ok {
+		t.Errorf("gitignore 된 .env.keys 를 보고했다: %v", found)
+	}
+}
+
+func TestScanPlaintextVariantKind(t *testing.T) {
+	root := t.TempDir()
+	env := filepath.Join(root, "a", ".env")
+	local := filepath.Join(root, "a", ".env.local")
+	write(t, env, "SECRET=abc\n")
+	write(t, local, "SECRET=abc\n")
+
+	found, _ := Scan(root, DefaultDepth)
+	kinds := map[string]FindingKind{}
+	for _, f := range found {
+		kinds[f.Path] = f.Kind
+	}
+	if kinds[env] != FindingPlaintextEnv {
+		t.Errorf(".env 종류 = %v, want FindingPlaintextEnv", kinds[env])
+	}
+	if kinds[local] != FindingPlaintextVariant {
+		t.Errorf(".env.local 종류 = %v, want FindingPlaintextVariant", kinds[local])
+	}
+}
+
+// dotenvx 로 마이그레이션을 마친 프로젝트(암호문 .env + gitignore 된 .env.keys)는
+// 아무것도 보고하지 않아야 한다.
+func TestRunScanCleanAfterMigration(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "p", ".env"), "DOTENV_PUBLIC_KEY=\"03\"\nSECRET=\"encrypted:xx\"\n")
+	write(t, filepath.Join(root, "p", ".env.keys"), "DOTENV_PRIVATE_KEY=\"122\"\n")
+	write(t, filepath.Join(root, "p", ".gitignore"), ".env.keys\n")
+
+	var out bytes.Buffer
+	if err := RunScan(root, DefaultDepth, &out); err != nil {
+		t.Fatal(err)
+	}
+	if found, _ := Scan(root, DefaultDepth); len(found) != 0 {
+		t.Errorf("깨끗한 프로젝트인데 보고했다: %v", paths(found))
+	}
+	if strings.Contains(out.String(), "aeg init") || strings.Contains(out.String(), ".env.keys") {
+		t.Errorf("깨끗한 프로젝트인데 조치를 안내했다:\n%s", out.String())
+	}
+}
+
+func TestRunScanVariantHintIsDotenvxEncrypt(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "p", ".env.production"), "SECRET=abc\n")
+
+	var out bytes.Buffer
+	if err := RunScan(root, DefaultDepth, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "dotenvx encrypt -f") {
+		t.Errorf(".env.production 에 dotenvx encrypt -f 안내가 없다:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "aeg init") {
+		t.Errorf("aeg init 은 .env.production 을 마이그레이션하지 않는데 안내했다:\n%s", out.String())
+	}
+}
+
+func TestRunScanKeysNotIgnoredHint(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "p", ".env.keys"), "DOTENV_PRIVATE_KEY=\"122\"\n")
+
+	var out bytes.Buffer
+	if err := RunScan(root, DefaultDepth, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), ".gitignore") {
+		t.Errorf(".gitignore 추가 안내가 없다:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "aeg init") {
+		t.Errorf(".env.keys 에 aeg init 을 안내했다:\n%s", out.String())
 	}
 }
 

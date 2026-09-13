@@ -55,11 +55,25 @@ func containsConsecutiveSegments(path string, segments []string) bool {
 // slowDirs 는 네트워크 동기화 폴더다. 만나면 경고하고 계속한다.
 var slowDirs = []string{"Google Drive", "Dropbox", "CloudStorage", "OneDrive"}
 
+// FindingKind 는 scan 이 찾은 파일에 필요한 조치의 종류다.
+type FindingKind int
+
+const (
+	// FindingPlaintextEnv 는 평문 .env 다. aeg init 이 마이그레이션한다.
+	FindingPlaintextEnv FindingKind = iota
+	// FindingPlaintextVariant 는 .env.local, .env.production 같은 평문 변형이다.
+	// aeg init 은 .env 만 다루므로 dotenvx encrypt -f 로 직접 암호화해야 한다.
+	FindingPlaintextVariant
+	// FindingKeysNotIgnored 는 .gitignore 에 없는 .env.keys 다. 커밋 위험이 있다.
+	FindingKeysNotIgnored
+)
+
 type Finding struct {
 	Path string
+	Kind FindingKind
 }
 
-// Scan 은 root 아래에서 평문 .env 와 .env.keys 를 찾는다.
+// Scan 은 root 아래에서 평문 .env 계열과 .gitignore 에 없는 .env.keys 를 찾는다.
 // 권한이 없어 못 읽은 디렉터리 수를 함께 반환한다.
 func Scan(root string, maxDepth int) ([]Finding, int) {
 	root = filepath.Clean(root)
@@ -91,15 +105,32 @@ func Scan(root string, maxDepth int) ([]Finding, int) {
 		// 이름으로 먼저 거른다. 내용 읽기는 후보에만 한다.
 		switch policy.ClassifyPath(path) {
 		case policy.PathEnvKeys:
-			findings = append(findings, Finding{Path: path})
+			// .env.keys 는 dotenvx 를 쓰는 프로젝트에 원래 있는 파일이다.
+			// 커밋될 위험이 있을 때(.gitignore 에 없을 때)만 보고한다.
+			if !keysGitignored(filepath.Dir(path)) {
+				findings = append(findings, Finding{Path: path, Kind: FindingKeysNotIgnored})
+			}
 		case policy.PathEnvFile:
 			if policy.ClassifyEnvFile(path) == policy.EnvPlaintext {
-				findings = append(findings, Finding{Path: path})
+				kind := FindingPlaintextEnv
+				if d.Name() != ".env" {
+					kind = FindingPlaintextVariant
+				}
+				findings = append(findings, Finding{Path: path, Kind: kind})
 			}
 		}
 		return nil
 	})
 	return findings, skipped
+}
+
+// keysGitignored 는 dir 의 .gitignore 에 .env.keys 가 있는지 본다.
+func keysGitignored(dir string) bool {
+	b, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		return false
+	}
+	return GitignoreHas(string(b), ".env.keys")
 }
 
 // ParseScanArgs 는 aeg scan 의 커맨드라인 인수를 파싱한다.
@@ -169,14 +200,45 @@ func RunScan(root string, maxDepth int, stdout io.Writer) error {
 	fmt.Fprintf(stdout, "%s 아래를 훑는 중 (최대 깊이 %d)...\n\n", root, maxDepth)
 	findings, skipped := Scan(root, maxDepth)
 
+	var envs, variants, keys []Finding
+	for _, f := range findings {
+		switch f.Kind {
+		case FindingPlaintextEnv:
+			envs = append(envs, f)
+		case FindingPlaintextVariant:
+			variants = append(variants, f)
+		case FindingKeysNotIgnored:
+			keys = append(keys, f)
+		}
+	}
+
 	if len(findings) == 0 {
 		fmt.Fprintln(stdout, "평문 시크릿 파일을 찾지 못했습니다.")
-	} else {
-		fmt.Fprintf(stdout, "평문 시크릿 파일 %d개:\n\n", len(findings))
-		for _, f := range findings {
+	}
+	// 섹션 사이에만 빈 줄을 넣는다.
+	sep := ""
+	if len(envs) > 0 {
+		fmt.Fprintf(stdout, "%s평문 .env %d개:\n\n", sep, len(envs))
+		sep = "\n"
+		for _, f := range envs {
 			fmt.Fprintf(stdout, "  %s\n", f.Path)
 		}
 		fmt.Fprintf(stdout, "\n각 프로젝트에서 다음을 실행하세요:\n  aeg init <프로젝트 경로>\n")
+	}
+	if len(variants) > 0 {
+		fmt.Fprintf(stdout, "%s평문 .env 변형 파일 %d개:\n\n", sep, len(variants))
+		sep = "\n"
+		for _, f := range variants {
+			fmt.Fprintf(stdout, "  %s\n", f.Path)
+		}
+		fmt.Fprintf(stdout, "\n.env 가 아닌 변형 파일은 자동 마이그레이션 대상이 아닙니다. 파일마다 직접 암호화하세요:\n  dotenvx encrypt -f <파일>\n")
+	}
+	if len(keys) > 0 {
+		fmt.Fprintf(stdout, "%s.gitignore 에 없는 개인키 파일 %d개:\n\n", sep, len(keys))
+		for _, f := range keys {
+			fmt.Fprintf(stdout, "  %s\n", f.Path)
+		}
+		fmt.Fprintf(stdout, "\n커밋되지 않도록 각 프로젝트의 .gitignore 에 추가하세요:\n  .env.keys\n")
 	}
 	if skipped > 0 {
 		fmt.Fprintf(stdout, "\n권한이 없어 건너뛴 디렉터리: %d개\n", skipped)
