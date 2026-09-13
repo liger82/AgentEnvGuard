@@ -252,6 +252,44 @@ func TestDecideBashRedirections(t *testing.T) {
 	}
 }
 
+// sudo, env VAR=1, nohup 같은 접두어 뒤의 읽기 명령도 읽기 명령으로 봐야 한다.
+func TestDecideBashCommandPrefixes(t *testing.T) {
+	e := engineWith(map[string]EnvFileKind{"/p/.env": EnvPlaintext})
+	tests := []struct {
+		name      string
+		cmd       string
+		wantAllow bool
+	}{
+		{"sudo", "sudo cat .env.keys", false},
+		{"sudo -u root", "sudo -u root cat .env.keys", false},
+		{"sudo 옵션 여러 개", "sudo -E -g staff head .env.keys", false},
+		{"env 할당", "env FOO=1 cat .env.keys", false},
+		{"env 옵션과 할당", "env -i FOO=1 BAR=2 cat .env.keys", false},
+		{"맨 앞 할당", "FOO=1 cat .env", false},
+		{"nohup", "nohup cat .env.keys", false},
+		{"time", "time cat .env.keys", false},
+		{"command", "command cat .env.keys", false},
+		{"builtin source", "builtin source .env", false},
+		{"exec", "exec cat .env.keys", false},
+		{"nice -n", "nice -n 10 cat .env.keys", false},
+		{"doas", "doas cat .env.keys", false},
+		{"중첩 접두어", "sudo env FOO=1 nohup cat .env.keys", false},
+
+		{"sudo ls", "sudo ls", true},
+		{"env 로 다른 명령 실행", "env FOO=1 python app.py", true},
+		{"sudo 뒤 무관한 파일", "sudo cat /etc/hosts", true},
+		{"접두어만", "sudo", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := e.Decide(ToolCall{Kind: ToolBash, Command: tt.cmd, Cwd: "/p"})
+			if got.Allow != tt.wantAllow {
+				t.Errorf("%s: Allow = %v, want %v (reason: %s)", tt.cmd, got.Allow, tt.wantAllow, got.Reason)
+			}
+		})
+	}
+}
+
 func TestDecideRelativePathResolvedAgainstCwd(t *testing.T) {
 	e := engineWith(map[string]EnvFileKind{"/proj/.env": EnvPlaintext})
 	got := e.Decide(ToolCall{Kind: ToolFileRead, Path: ".env", Cwd: "/proj"})

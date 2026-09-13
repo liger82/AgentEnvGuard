@@ -241,6 +241,55 @@ func isDigits(s string) bool {
 	return true
 }
 
+// commandPrefixes 는 뒤따르는 명령을 실행만 하는 접두어와, 그 접두어에서
+// 다음 토큰을 값으로 받는 옵션이다. 접두어 뒤의 옵션(-로 시작)은 건너뛴다.
+var commandPrefixes = map[string]map[string]bool{
+	"sudo":    {"-u": true, "-g": true},
+	"doas":    {"-u": true},
+	"env":     {"-u": true, "-C": true},
+	"nice":    {"-n": true},
+	"command": nil, "builtin": nil, "exec": nil, "nohup": nil, "time": nil,
+}
+
+// isAssignment 는 VAR=값 형태의 환경변수 할당 토큰인지 본다.
+func isAssignment(tok string) bool {
+	eq := strings.IndexByte(tok, '=')
+	if eq < 1 {
+		return false
+	}
+	for i := 0; i < eq; i++ {
+		c := tok[i]
+		if c != '_' && !(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') && !(i > 0 && c >= '0' && c <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// commandStart 는 sudo, env VAR=1, nohup, 맨 앞의 VAR=값 같은 접두어를
+// 건너뛴 실제 명령의 위치를 돌려준다. 명령이 없으면 len(words) 다.
+func commandStart(words []string) int {
+	i := 0
+	for i < len(words) {
+		if isAssignment(words[i]) {
+			i++
+			continue
+		}
+		argFlags, ok := commandPrefixes[filepath.Base(words[i])]
+		if !ok {
+			return i
+		}
+		i++
+		for i < len(words) && strings.HasPrefix(words[i], "-") {
+			if argFlags[words[i]] {
+				i++
+			}
+			i++
+		}
+	}
+	return i
+}
+
 // isDotenvxToken 은 토큰이 dotenvx 실행 파일을 가리키는지 본다.
 // dotenvx, /opt/homebrew/bin/dotenvx, @dotenvx/dotenvx, dotenvx@latest,
 // @dotenvx/dotenvx@1.2.3 을 모두 dotenvx 로 본다.
@@ -346,10 +395,11 @@ func AnalyzeCommand(cmd string) CmdFinding {
 			}
 		}
 
-		if len(fields) == 0 || !readerCommands[filepath.Base(fields[0])] || redirected {
+		start := commandStart(fields)
+		if start >= len(fields) || !readerCommands[filepath.Base(fields[start])] || redirected {
 			continue
 		}
-		for _, tok := range fields[1:] {
+		for _, tok := range fields[start+1:] {
 			if strings.HasPrefix(tok, "-") {
 				continue
 			}
