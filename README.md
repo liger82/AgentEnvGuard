@@ -2,13 +2,14 @@
 
 코딩 에이전트가 시크릿 평문을 읽지 못하게 막는 Claude Code 가드레일.
 
-**시크릿 매니저가 아니다.** 볼트·암호화·주입은
-[dotenvx](https://dotenvx.com) 가 한다. AgentEnvGuard 는 그 위에 얹혀서,
+- **시크릿 매니저가 아니다.** 
+- 볼트·암호화·주입은 [dotenvx](https://dotenvx.com) 가 한다. 
+- AgentEnvGuard 는 그 위에 얹혀서,
 에이전트가 규칙을 지키도록 강제하는 얇은 층이다.
 (같은 이름의 [amannirala13/envguard](https://github.com/amannirala13/envguard)
 와는 무관한 별개 프로젝트다.)
 
-## 무엇을 막는가
+## 차단 범위
 
 에이전트가 `cat .env` 한 번을 하면 시크릿이 대화 로그와 컨텍스트에 남고,
 그 뒤로 어디로 흘러가는지 통제할 수 없다. AgentEnvGuard 는 Claude Code 의
@@ -29,7 +30,7 @@ Bash 도 Read 도 거치지 않고 개인키가 나온다.
 차단할 때는 거부만 하지 않고 올바른 대안을 함께 알려준다. 그러지 않으면
 에이전트가 우회를 시도한다.
 
-## 무엇을 막지 못하는가
+## 한계
 
 **의도적 탈취는 막지 못한다.** 명령 문자열 매칭이므로 이런 것은 통과한다.
 
@@ -63,7 +64,7 @@ bash 를 실행할 수 있는 에이전트에게서 값을 완전히 숨기는 �
   누가 손으로 고쳐놓은 것까지 복구하지 않는다. 의심되면
   `~/.claude/settings.json` 을 직접 확인하라.
 
-## 설치
+## 설치 방법
 
 ```bash
 brew install dotenvx/brew/dotenvx   # 볼트는 dotenvx 가 맡는다
@@ -81,7 +82,7 @@ aeg install                         # 노트북당 한 번
 cp ~/.claude/settings.json.aeg-backup ~/.claude/settings.json
 ```
 
-## 사용
+## 사용 방법
 
 ```bash
 aeg scan                      # 평문 .env 를 쓰는 프로젝트를 전부 찾는다
@@ -91,6 +92,9 @@ dotenvx run -- python app.py  # 이제부터 스크립트는 이렇게 실행한
 
 `dotenvx run` 은 값을 가리지 않는다. 스크립트가 값을 출력하면 그대로
 보이므로, 실행하는 명령 자체가 시크릿이나 환경변수를 출력하지 않게 한다.
+
+키가 어디에 저장되는지, 코드에서 환경변수를 어떻게 쓰는지는
+[docs/dotenvx-guide.md](docs/dotenvx-guide.md) 에 정리했다.
 
 `aeg scan` 은 기본으로 `$HOME` 아래를 깊이 6까지 훑는다.
 `node_modules`, `.git`, `Library` 등은 건너뛴다. `--depth N` 으로 탐색
