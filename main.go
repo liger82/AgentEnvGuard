@@ -48,6 +48,15 @@ func main() {
 			fmt.Fprintf(os.Stderr, "aeg: %v\n", err)
 			os.Exit(1)
 		}
+	case "init":
+		dir := "."
+		if len(os.Args) > 2 {
+			dir = os.Args[2]
+		}
+		if err := cmd.Init(dir, cmd.ExecRunner, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "aeg: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "aeg: 알 수 없는 명령 %q\n\n", os.Args[1])
 		fmt.Fprint(os.Stderr, usage)
