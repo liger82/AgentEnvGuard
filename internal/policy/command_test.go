@@ -15,6 +15,8 @@ func TestAnalyzeCommandRisk(t *testing.T) {
 		{"dotenvx get 공백 많음", "dotenvx   get   KEY", CmdDotenvxGet},
 		{"dotenvx decrypt", "dotenvx decrypt", CmdDotenvxDecrypt},
 		{"dotenvx decrypt stdout", "dotenvx decrypt --stdout", CmdDotenvxDecrypt},
+		{"dotenvx keypair", "dotenvx keypair", CmdDotenvxKeypair},
+		{"dotenvx keypair 형식 지정", "dotenvx keypair -f .env.production --format shell", CmdDotenvxKeypair},
 		{"no-redact", "dotenvx run --no-redact -- python x.py", CmdRedactBypass},
 		{"mask 0", "dotenvx run --mask 0 -- node a.js", CmdRedactBypass},
 		{"mask=0", "dotenvx run --mask=0 -- node a.js", CmdRedactBypass},

@@ -118,6 +118,8 @@ func (e *Engine) decideBash(tc ToolCall) Decision {
 		return deny(msgDotenvxGet)
 	case CmdDotenvxDecrypt:
 		return deny(msgDotenvxDecrypt)
+	case CmdDotenvxKeypair:
+		return deny(msgDotenvxKeypair)
 	case CmdRedactBypass:
 		return deny(msgRedactBypass)
 	case CmdPrivateKeyEcho:
@@ -150,6 +152,11 @@ const (
   dotenvx run -- <실행할 명령>`
 
 	msgDotenvxDecrypt = `dotenvx decrypt 는 볼트 전체를 평문으로 되돌립니다.
+
+값을 직접 볼 필요 없이 다음으로 실행하세요:
+  dotenvx run -- <실행할 명령>`
+
+	msgDotenvxKeypair = `dotenvx keypair 는 DOTENV_PRIVATE_KEY 를 그대로 출력합니다. 읽으면 볼트 전체가 열립니다.
 
 값을 직접 볼 필요 없이 다음으로 실행하세요:
   dotenvx run -- <실행할 명령>`

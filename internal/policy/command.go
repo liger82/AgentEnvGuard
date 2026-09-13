@@ -11,6 +11,7 @@ const (
 	CmdSafe CmdRisk = iota
 	CmdDotenvxGet
 	CmdDotenvxDecrypt
+	CmdDotenvxKeypair
 	CmdRedactBypass
 	CmdPrivateKeyEcho
 )
@@ -23,6 +24,8 @@ func (r CmdRisk) String() string {
 		return "CmdDotenvxGet"
 	case CmdDotenvxDecrypt:
 		return "CmdDotenvxDecrypt"
+	case CmdDotenvxKeypair:
+		return "CmdDotenvxKeypair"
 	case CmdRedactBypass:
 		return "CmdRedactBypass"
 	case CmdPrivateKeyEcho:
@@ -147,6 +150,9 @@ func AnalyzeCommand(cmd string) CmdFinding {
 				f.Risk = CmdDotenvxGet
 			case "decrypt":
 				f.Risk = CmdDotenvxDecrypt
+			case "keypair":
+				// dotenvx keypair 는 DOTENV_PRIVATE_KEY 를 그대로 출력한다.
+				f.Risk = CmdDotenvxKeypair
 			}
 		}
 
