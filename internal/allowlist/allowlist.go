@@ -49,6 +49,7 @@ func Covers(roots []string, target string) bool {
 	}
 	target = filepath.Clean(target)
 	for _, r := range roots {
+		r = filepath.Clean(r)
 		if target == r {
 			return true
 		}

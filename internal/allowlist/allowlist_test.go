@@ -52,3 +52,21 @@ func TestCovers(t *testing.T) {
 		})
 	}
 }
+
+func TestCoversTrailingSeparator(t *testing.T) {
+	roots := []string{"/Users/me/scratch/"}
+	tests := []struct {
+		target string
+		want   bool
+	}{
+		{"/Users/me/scratch", true},
+		{"/Users/me/scratch/.env", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.target, func(t *testing.T) {
+			if got := Covers(roots, tt.target); got != tt.want {
+				t.Errorf("Covers(%q) with trailing separator root = %v, want %v", tt.target, got, tt.want)
+			}
+		})
+	}
+}
