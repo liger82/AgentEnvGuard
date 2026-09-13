@@ -87,3 +87,67 @@ func TestScanFindsEnvKeys(t *testing.T) {
 		t.Errorf(".env.keys 를 보고하지 않았다: %v", paths(found))
 	}
 }
+
+func TestParseDepthFlag(t *testing.T) {
+	tests := []struct {
+		args      []string
+		wantRoot  string
+		wantDepth int
+		wantErr   bool
+	}{
+		// 유효한 경우
+		{[]string{"--depth", "3", "/home"}, "/home", 3, false},
+		{[]string{"/home", "--depth", "3"}, "/home", 3, false},
+		{[]string{"--depth=3", "/home"}, "/home", 3, false},
+		{[]string{"/home", "--depth=3"}, "/home", 3, false},
+		{[]string{"--depth", "5"}, "", 5, false},
+		{[]string{"--depth=7"}, "", 7, false},
+		{[]string{"/home"}, "/home", DefaultDepth, false},
+		{[]string{}, "", DefaultDepth, false},
+
+		// 에러 경우
+		{[]string{"--depth"}, "", 0, true},        // 값 없음
+		{[]string{"--depth", "abc"}, "", 0, true}, // 숫자 아님
+		{[]string{"--depth=abc"}, "", 0, true},    // 숫자 아님
+		{[]string{"--depth", "0"}, "", 0, true},   // 0은 불가
+		{[]string{"--depth", "-1"}, "", 0, true},  // 음수는 불가
+		{[]string{"--unknown"}, "", 0, true},      // 알 수 없는 플래그
+	}
+
+	for i, tt := range tests {
+		root, depth, err := ParseScanArgs(tt.args)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("test %d: wantErr=%v, got err=%v", i, tt.wantErr, err)
+		}
+		if !tt.wantErr {
+			if root != tt.wantRoot || depth != tt.wantDepth {
+				t.Errorf("test %d: got (%q, %d), want (%q, %d)", i, root, depth, tt.wantRoot, tt.wantDepth)
+			}
+		}
+	}
+}
+
+func TestSegmentAwareExclusion(t *testing.T) {
+	root := t.TempDir()
+
+	// 실제 go/pkg/mod 는 제외된다
+	gopkgmod := filepath.Join(root, "go", "pkg", "mod", "example.com", ".env")
+	write(t, gopkgmod, "SECRET=abc\n")
+
+	// mongo/pkg/mod 같은 무관한 경로는 제외되지 않는다
+	mongopkgmod := filepath.Join(root, "mongo", "pkg", "mod", "local", ".env")
+	write(t, mongopkgmod, "SECRET=def\n")
+
+	found, _ := Scan(root, DefaultDepth)
+	foundPaths := paths(found)
+
+	// go/pkg/mod 의 .env 는 스킵되어야 한다
+	if contains(foundPaths, gopkgmod) {
+		t.Errorf("go/pkg/mod 를 제외하지 않았다: %v", foundPaths)
+	}
+
+	// mongo/pkg/mod 의 .env 는 보고되어야 한다
+	if !contains(foundPaths, mongopkgmod) {
+		t.Errorf("mongo/pkg/mod 를 잘못 제외했다: %v", foundPaths)
+	}
+}

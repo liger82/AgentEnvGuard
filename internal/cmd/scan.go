@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/liger82/AgentEnvGuard/internal/policy"
@@ -23,10 +24,32 @@ var excludedDirs = map[string]bool{
 	"Library": true, // macOS. 거대하고 프로젝트가 없다
 }
 
-// excludedPathFragments 는 경로 일부로 판단하는 제외 대상이다.
+// excludedPathSegments 는 연속된 경로 세그먼트로 판단하는 제외 대상이다.
 // 이름만으로 거르면 Go 프로젝트의 정상 pkg/ 디렉터리까지 건너뛰게 된다.
-var excludedPathFragments = []string{
-	filepath.Join("go", "pkg", "mod"),
+var excludedPathSegments = [][]string{
+	{"go", "pkg", "mod"},
+}
+
+// containsConsecutiveSegments 는 경로가 연속된 세그먼트를 포함하는지 확인한다.
+// mongo/pkg/mod 같은 무관한 경로는 매치되지 않도록 한다.
+func containsConsecutiveSegments(path string, segments []string) bool {
+	parts := strings.Split(path, string(filepath.Separator))
+	if len(parts) < len(segments) {
+		return false
+	}
+	for i := 0; i <= len(parts)-len(segments); i++ {
+		match := true
+		for j, seg := range segments {
+			if parts[i+j] != seg {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }
 
 // slowDirs 는 네트워크 동기화 폴더다. 만나면 경고하고 계속한다.
@@ -54,8 +77,8 @@ func Scan(root string, maxDepth int) ([]Finding, int) {
 			if path != root && excludedDirs[d.Name()] {
 				return fs.SkipDir
 			}
-			for _, frag := range excludedPathFragments {
-				if strings.Contains(path, frag) {
+			for _, segs := range excludedPathSegments {
+				if containsConsecutiveSegments(path, segs) {
 					return fs.SkipDir
 				}
 			}
@@ -77,6 +100,55 @@ func Scan(root string, maxDepth int) ([]Finding, int) {
 		return nil
 	})
 	return findings, skipped
+}
+
+// ParseScanArgs 는 aeg scan 의 커맨드라인 인수를 파싱한다.
+// --depth N 또는 --depth=N 플래그와 선택적 경로를 처리한다.
+func ParseScanArgs(args []string) (root string, depth int, err error) {
+	depth = DefaultDepth
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+
+		if arg == "--depth" {
+			if i+1 >= len(args) {
+				return "", 0, fmt.Errorf("--depth 에 값이 필요합니다")
+			}
+			depthStr := args[i+1]
+			depthVal, err := strconv.Atoi(depthStr)
+			if err != nil {
+				return "", 0, fmt.Errorf("--depth 값이 숫자가 아닙니다: %q", depthStr)
+			}
+			if depthVal <= 0 {
+				return "", 0, fmt.Errorf("--depth 는 양수여야 합니다: %d", depthVal)
+			}
+			depth = depthVal
+			i++ // skip next arg
+		} else if strings.HasPrefix(arg, "--depth=") {
+			depthStr := strings.TrimPrefix(arg, "--depth=")
+			if depthStr == "" {
+				return "", 0, fmt.Errorf("--depth= 에 값이 필요합니다")
+			}
+			depthVal, err := strconv.Atoi(depthStr)
+			if err != nil {
+				return "", 0, fmt.Errorf("--depth 값이 숫자가 아닙니다: %q", depthStr)
+			}
+			if depthVal <= 0 {
+				return "", 0, fmt.Errorf("--depth 는 양수여야 합니다: %d", depthVal)
+			}
+			depth = depthVal
+		} else if !strings.HasPrefix(arg, "-") {
+			// positional argument
+			if root != "" {
+				return "", 0, fmt.Errorf("경로가 여러 개입니다: %q, %q", root, arg)
+			}
+			root = arg
+		} else {
+			return "", 0, fmt.Errorf("알 수 없는 플래그: %q", arg)
+		}
+	}
+
+	return root, depth, nil
 }
 
 func RunScan(root string, maxDepth int, stdout io.Writer) error {

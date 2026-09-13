@@ -13,6 +13,7 @@ const usage = `aeg — 코딩 에이전트가 시크릿 평문을 읽지 못하�
 사용법:
   aeg install        Claude Code 전역 훅을 설치한다 (노트북당 한 번)
   aeg scan [경로]     평문 .env 를 쓰는 프로젝트를 찾는다 (기본: $HOME)
+    --depth N        탐색 깊이를 조정한다 (기본: 6)
   aeg init [경로]     프로젝트 하나를 dotenvx 로 마이그레이션한다
   aeg hook           훅이 내부적으로 호출한다. 직접 쓰지 않는다
 
@@ -38,11 +39,12 @@ func main() {
 			os.Exit(1)
 		}
 	case "scan":
-		root := ""
-		if len(os.Args) > 2 {
-			root = os.Args[2]
+		root, depth, err := cmd.ParseScanArgs(os.Args[2:])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "aeg: %v\n", err)
+			os.Exit(2)
 		}
-		if err := cmd.RunScan(root, cmd.DefaultDepth, os.Stdout); err != nil {
+		if err := cmd.RunScan(root, depth, os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "aeg: %v\n", err)
 			os.Exit(1)
 		}
