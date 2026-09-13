@@ -17,6 +17,8 @@ func TestAnalyzeCommandRisk(t *testing.T) {
 		{"dotenvx decrypt stdout", "dotenvx decrypt --stdout", CmdDotenvxDecrypt},
 		{"no-redact", "dotenvx run --no-redact -- python x.py", CmdRedactBypass},
 		{"mask 0", "dotenvx run --mask 0 -- node a.js", CmdRedactBypass},
+		{"mask=0", "dotenvx run --mask=0 -- node a.js", CmdRedactBypass},
+		{"mask=1", "dotenvx run --mask=1 -- node a.js", CmdSafe},
 		{"private key echo", "echo $DOTENV_PRIVATE_KEY", CmdPrivateKeyEcho},
 		{"private key printenv", "printenv DOTENV_PRIVATE_KEY", CmdPrivateKeyEcho},
 

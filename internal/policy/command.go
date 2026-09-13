@@ -84,6 +84,9 @@ func AnalyzeCommand(cmd string) CmdFinding {
 			if tok == "--mask" && i+1 < len(fields) && fields[i+1] == "0" {
 				f.Risk = CmdRedactBypass
 			}
+			if strings.HasPrefix(tok, "--mask=") && strings.HasSuffix(tok, "=0") {
+				f.Risk = CmdRedactBypass
+			}
 			if strings.Contains(tok, "DOTENV_PRIVATE_KEY") {
 				f.Risk = CmdPrivateKeyEcho
 			}
