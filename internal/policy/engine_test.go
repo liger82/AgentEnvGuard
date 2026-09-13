@@ -188,6 +188,38 @@ func TestDecideBash(t *testing.T) {
 	}
 }
 
+// 백슬래시 이스케이프는 bash 규칙을 따라야 한다. \" 나 \' 를 따옴표 시작으로
+// 잘못 보면 뒤따르는 명령 전체가 한 토큰으로 삼켜져 검사를 피한다.
+func TestDecideBashBackslashEscapes(t *testing.T) {
+	e := engineWith(map[string]EnvFileKind{"/p/.env": EnvPlaintext})
+	tests := []struct {
+		name      string
+		cmd       string
+		wantAllow bool
+	}{
+		{"작은따옴표 안 이스케이프 관용구 뒤 .env.keys", `echo 'it'\''s'; cat .env.keys`, false},
+		{"큰따옴표 안 이스케이프 따옴표 뒤 .env.keys", `echo "a \" b"; cat .env.keys`, false},
+		{"따옴표 밖 이스케이프 작은따옴표 뒤 .env.keys", `echo it\'s; cat .env.keys`, false},
+		{"따옴표 밖 이스케이프 큰따옴표 뒤 평문 .env", `echo \"; cat .env`, false},
+		{"printf 큰따옴표 이스케이프 뒤 dotenvx get", `printf '%s\n' "don\"t" && dotenvx get X`, false},
+		{"이스케이프 관용구 뒤 decrypt", `echo 'it'\''s' && dotenvx decrypt --stdout`, false},
+		{"한 세그먼트 안 큰따옴표 이스케이프", `grep "a\"b" .env`, false},
+
+		{"큰따옴표 이스케이프만 있으면 허용", `echo "a \" b"`, true},
+		{"따옴표 밖 이스케이프만 있으면 허용", `echo it\'s`, true},
+		{"이스케이프된 공백 경로는 한 토큰", `cat my\ notes.txt`, true},
+		{"작은따옴표 안 백슬래시는 글자 그대로", `echo 'a\'`, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := e.Decide(ToolCall{Kind: ToolBash, Command: tt.cmd, Cwd: "/p"})
+			if got.Allow != tt.wantAllow {
+				t.Errorf("%s: Allow = %v, want %v (reason: %s)", tt.cmd, got.Allow, tt.wantAllow, got.Reason)
+			}
+		})
+	}
+}
+
 func TestDecideRelativePathResolvedAgainstCwd(t *testing.T) {
 	e := engineWith(map[string]EnvFileKind{"/proj/.env": EnvPlaintext})
 	got := e.Decide(ToolCall{Kind: ToolFileRead, Path: ".env", Cwd: "/proj"})

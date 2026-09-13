@@ -96,6 +96,11 @@ func TestAnalyzeCommandPaths(t *testing.T) {
 		{"공백 없는 리다이렉션 대상", "base64 <.env.keys", []string{".env.keys"}},
 		{"홈 경로는 그대로 돌려준다", "cat ~/.env", []string{"~/.env"}},
 
+		{"큰따옴표 안 이스케이프된 따옴표", `grep "a\"b" .env`, []string{".env"}},
+		{"따옴표 밖 이스케이프된 공백", `cat my\ dir/.env.keys`, []string{"my dir/.env.keys"}},
+		{"큰따옴표 안 다른 백슬래시는 글자 그대로", `cat "a\b/.env"`, []string{`a\b/.env`}},
+		{"줄 이음 백슬래시", "cat \\\n.env", []string{".env"}},
+
 		{"읽기 명령이 아니면 무시", "rm .env", nil},
 		{"echo 는 무시", "echo .env 를 확인하세요", nil},
 		{"dotenvx run 은 무시", "dotenvx run -- python x.py", nil},

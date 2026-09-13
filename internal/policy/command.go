@@ -59,7 +59,9 @@ var readerCommands = map[string]bool{
 // 따옴표를 최소한으로 이해한다. 짝이 맞는 "..." 와 '...' 는 한 토큰으로 묶고
 // 따옴표 자체는 벗긴다 — cat ".env.keys" 가 cat .env.keys 와 같게 보이도록.
 // 따옴표 안의 공백과 구분자(&&, ||, ;, |, 줄바꿈)는 토큰이나 세그먼트를
-// 나누지 않는다. 변수 확장이나 이스케이프의 정확한 의미까지 흉내 내지는 않는다.
+// 나누지 않는다. 백슬래시는 bash 규칙을 따른다 — 따옴표 밖에서는 다음 바이트를
+// 이스케이프하고, 큰따옴표 안에서는 " \ $ ` 와 줄바꿈만, 작은따옴표 안에서는
+// 아무것도 이스케이프하지 않는다. 변수 확장까지 흉내 내지는 않는다.
 func splitSegments(cmd string) [][]string {
 	var (
 		segs  [][]string
@@ -87,7 +89,8 @@ func splitSegments(cmd string) [][]string {
 	// ASCII 바이트와 겹치지 않으므로 한글 인자도 안전하다.
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
-		if quote != 0 {
+		if quote == '\'' {
+			// 작은따옴표 안에서는 백슬래시도 글자 그대로다. ' 를 이스케이프할 방법이 없다.
 			if c == quote {
 				quote = 0
 			} else {
@@ -95,7 +98,36 @@ func splitSegments(cmd string) [][]string {
 			}
 			continue
 		}
+		if quote == '"' {
+			switch {
+			case c == '"':
+				quote = 0
+			case c == '\\' && i+1 < len(cmd) && cmd[i+1] == '\n':
+				i++ // 줄 이음: 백슬래시와 줄바꿈 둘 다 사라진다
+			case c == '\\' && i+1 < len(cmd) && strings.IndexByte("\"\\$`", cmd[i+1]) >= 0:
+				// 큰따옴표 안에서는 " \ $ ` 만 이스케이프된다.
+				cur.WriteByte(cmd[i+1])
+				i++
+			default:
+				cur.WriteByte(c)
+			}
+			continue
+		}
 		switch c {
+		case '\\':
+			// 따옴표 밖의 백슬래시는 다음 바이트를 글자 그대로 만든다.
+			// 맨 끝에 홀로 남은 백슬래시는 그대로 둔다.
+			switch {
+			case i+1 >= len(cmd):
+				cur.WriteByte(c)
+				inTok = true
+			case cmd[i+1] == '\n':
+				i++ // 줄 이음
+			default:
+				cur.WriteByte(cmd[i+1])
+				inTok = true
+				i++
+			}
 		case '\'', '"':
 			quote = c
 			inTok = true
