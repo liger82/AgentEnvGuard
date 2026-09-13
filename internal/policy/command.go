@@ -49,6 +49,8 @@ var readerCommands = map[string]bool{
 	"cp": true, "mv": true, "install": true,
 	"base64": true, "xxd": true, "od": true, "strings": true, "dd": true,
 	"source": true, ".": true, "open": true, "pbcopy": true,
+	"diff": true, "vimdiff": true, "cmp": true, "tac": true, "rev": true,
+	"paste": true, "column": true, "jq": true, "yq": true,
 }
 
 // splitSegments 는 명령 문자열을 셸 명령 단위(세그먼트)로 나누고, 각
@@ -101,6 +103,11 @@ func splitSegments(cmd string) [][]string {
 			flushTok()
 		case '\n', ';', '|':
 			flushSeg()
+		case '<':
+			// cat<.env 처럼 붙여 써도 리다이렉션 대상을 따로 보도록 < 를
+			// 독립 토큰으로 떼어낸다.
+			flushTok()
+			toks = append(toks, "<")
 		case '&':
 			// 2>&1, &> 같은 리다이렉션의 & 는 구분자가 아니다.
 			if (i > 0 && (cmd[i-1] == '>' || cmd[i-1] == '<')) || (i+1 < len(cmd) && cmd[i+1] == '>') {

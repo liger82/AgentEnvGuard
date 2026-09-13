@@ -131,6 +131,9 @@ func TestDecideBash(t *testing.T) {
 		{"작은따옴표 평문 .env 차단", `cat '.env'`, false},
 		{"따옴표 절대경로 평문 .env 차단", `cat "/p/.env"`, false},
 		{"따옴표 절대경로 .env.keys 차단", `cat '/p/.env.keys'`, false},
+		{"diff 로 평문 .env 읽기 차단", "diff .env .env.example", false},
+		{"jq 로 평문 .env 읽기 차단", "jq . .env", false},
+		{"공백 없는 리다이렉션 차단", "cat<.env", false},
 
 		{"정상 run 허용", "dotenvx run -- python x.py", true},
 		{"dotenvx set 허용", "dotenvx set K v", true},
@@ -152,6 +155,32 @@ func TestDecideRelativePathResolvedAgainstCwd(t *testing.T) {
 	got := e.Decide(ToolCall{Kind: ToolFileRead, Path: ".env", Cwd: "/proj"})
 	if got.Allow {
 		t.Error("Cwd 기준 상대 경로 해석이 안 됐다")
+	}
+}
+
+// 셸이 확장하는 ~, $HOME, ${HOME} 은 Cwd 기준 상대 경로가 아니라 홈 경로다.
+func TestDecideBashExpandsHome(t *testing.T) {
+	e := engineWith(map[string]EnvFileKind{
+		"/home/me/.env":   EnvPlaintext,
+		"/home/me/p/.env": EnvPlaintext,
+	})
+	e.Home = "/home/me"
+	tests := []struct {
+		name string
+		cmd  string
+	}{
+		{"물결표", "cat ~/.env"},
+		{"$HOME", "cat $HOME/p/.env"},
+		{"${HOME}", "head ${HOME}/.env"},
+		{"따옴표 안 $HOME", `cat "$HOME/.env"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := e.Decide(ToolCall{Kind: ToolBash, Command: tt.cmd, Cwd: "/p"})
+			if got.Allow {
+				t.Errorf("%q 가 허용됐다 — 홈 경로를 펼치지 않았다", tt.cmd)
+			}
+		})
 	}
 }
 

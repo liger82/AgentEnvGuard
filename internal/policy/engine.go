@@ -3,6 +3,7 @@ package policy
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -14,12 +15,16 @@ type Engine struct {
 	AllowRoots []string
 	// ClassifyFile 은 테스트에서 주입할 수 있도록 필드로 둔다.
 	ClassifyFile func(path string) EnvFileKind
+	// Home 은 ~, $HOME, ${HOME} 을 펼칠 때 쓴다. 비어 있으면 펼치지 않는다.
+	Home string
 }
 
 func New() *Engine {
+	home, _ := os.UserHomeDir()
 	return &Engine{
 		AllowRoots:   allowlist.Load(),
 		ClassifyFile: ClassifyEnvFile,
+		Home:         home,
 	}
 }
 
@@ -62,10 +67,28 @@ func DecideUnparsed(raw []byte) Decision {
 	return allow()
 }
 
+// expandHome 은 셸이 펼치는 선두 ~, $HOME, ${HOME} 을 홈 경로로 바꾼다.
+// ~user 형태는 다루지 않는다.
+func (e *Engine) expandHome(p string) string {
+	if e.Home == "" {
+		return p
+	}
+	for _, prefix := range []string{"~", "$HOME", "${HOME}"} {
+		if p == prefix {
+			return e.Home
+		}
+		if strings.HasPrefix(p, prefix+"/") {
+			return filepath.Join(e.Home, p[len(prefix)+1:])
+		}
+	}
+	return p
+}
+
 func (e *Engine) abs(p, cwd string) string {
 	if p == "" {
 		return ""
 	}
+	p = e.expandHome(p)
 	if filepath.IsAbs(p) {
 		return filepath.Clean(p)
 	}
