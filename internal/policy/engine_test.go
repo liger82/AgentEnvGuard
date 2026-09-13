@@ -120,6 +120,12 @@ func TestDecideBash(t *testing.T) {
 		{"개인키 출력 차단", "echo $DOTENV_PRIVATE_KEY", false},
 		{"cat .env.keys 차단", "cat .env.keys", false},
 		{"평문 .env 읽기 차단", "cat .env", false},
+		{"큰따옴표 .env.keys 차단", `cat ".env.keys"`, false},
+		{"작은따옴표 .env.keys 차단", `cat '.env.keys'`, false},
+		{"큰따옴표 평문 .env 차단", `cat ".env"`, false},
+		{"작은따옴표 평문 .env 차단", `cat '.env'`, false},
+		{"따옴표 절대경로 평문 .env 차단", `cat "/p/.env"`, false},
+		{"따옴표 절대경로 .env.keys 차단", `cat '/p/.env.keys'`, false},
 
 		{"정상 run 허용", "dotenvx run -- python x.py", true},
 		{"dotenvx set 허용", "dotenvx set K v", true},

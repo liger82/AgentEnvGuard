@@ -48,18 +48,70 @@ var readerCommands = map[string]bool{
 	"source": true, ".": true, "open": true, "pbcopy": true,
 }
 
-// segmentSeparators 는 셸에서 새 명령이 시작되는 지점이다.
-var segmentSeparators = []string{"&&", "||", ";", "|", "\n"}
-
-func splitSegments(cmd string) []string {
-	segs := []string{cmd}
-	for _, sep := range segmentSeparators {
-		var next []string
-		for _, s := range segs {
-			next = append(next, strings.Split(s, sep)...)
+// splitSegments 는 명령 문자열을 셸 명령 단위(세그먼트)로 나누고, 각
+// 세그먼트를 토큰으로 자른다.
+//
+// 따옴표를 최소한으로 이해한다. 짝이 맞는 "..." 와 '...' 는 한 토큰으로 묶고
+// 따옴표 자체는 벗긴다 — cat ".env.keys" 가 cat .env.keys 와 같게 보이도록.
+// 따옴표 안의 공백과 구분자(&&, ||, ;, |, 줄바꿈)는 토큰이나 세그먼트를
+// 나누지 않는다. 변수 확장이나 이스케이프의 정확한 의미까지 흉내 내지는 않는다.
+func splitSegments(cmd string) [][]string {
+	var (
+		segs  [][]string
+		toks  []string
+		cur   strings.Builder
+		inTok bool
+		quote byte
+	)
+	flushTok := func() {
+		if inTok {
+			toks = append(toks, cur.String())
+			cur.Reset()
+			inTok = false
 		}
-		segs = next
 	}
+	flushSeg := func() {
+		flushTok()
+		if len(toks) > 0 {
+			segs = append(segs, toks)
+			toks = nil
+		}
+	}
+
+	// 바이트 단위로 훑는다. 구분자는 모두 ASCII 이고 UTF-8 의 다바이트 문자는
+	// ASCII 바이트와 겹치지 않으므로 한글 인자도 안전하다.
+	for i := 0; i < len(cmd); i++ {
+		c := cmd[i]
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			} else {
+				cur.WriteByte(c)
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+			inTok = true
+		case ' ', '\t':
+			flushTok()
+		case '\n', ';', '|':
+			flushSeg()
+		case '&':
+			// 2>&1, &> 같은 리다이렉션의 & 는 구분자가 아니다.
+			if (i > 0 && (cmd[i-1] == '>' || cmd[i-1] == '<')) || (i+1 < len(cmd) && cmd[i+1] == '>') {
+				cur.WriteByte(c)
+				inTok = true
+			} else {
+				flushSeg()
+			}
+		default:
+			cur.WriteByte(c)
+			inTok = true
+		}
+	}
+	flushSeg()
 	return segs
 }
 
@@ -70,11 +122,7 @@ func splitSegments(cmd string) []string {
 func AnalyzeCommand(cmd string) CmdFinding {
 	f := CmdFinding{Risk: CmdSafe}
 
-	for _, seg := range splitSegments(cmd) {
-		fields := strings.Fields(seg)
-		if len(fields) == 0 {
-			continue
-		}
+	for _, fields := range splitSegments(cmd) {
 
 		// 위험 플래그는 세그먼트 어디에 있어도 잡는다.
 		for i, tok := range fields {

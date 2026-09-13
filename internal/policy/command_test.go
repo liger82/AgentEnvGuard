@@ -50,6 +50,15 @@ func TestAnalyzeCommandPaths(t *testing.T) {
 		{"리다이렉션", "base64 < .env.keys", []string{".env.keys"}},
 		{"cp 로 빼돌리기", "cp .env.keys /tmp/x", []string{".env.keys"}},
 
+		{"큰따옴표 .env.keys", `cat ".env.keys"`, []string{".env.keys"}},
+		{"작은따옴표 .env.keys", `cat '.env.keys'`, []string{".env.keys"}},
+		{"큰따옴표 평문 .env", `head ".env"`, []string{".env"}},
+		{"작은따옴표 절대경로", `cat '/Users/me/p/.env'`, []string{"/Users/me/p/.env"}},
+		{"공백 있는 따옴표 경로는 한 토큰", `cat "/Users/me/my proj/.env.keys"`, []string{"/Users/me/my proj/.env.keys"}},
+		{"따옴표 리다이렉션 대상", `base64 < ".env.keys"`, []string{".env.keys"}},
+		{"따옴표 안의 구분자는 세그먼트를 나누지 않는다", `grep "a|b" .env`, []string{".env"}},
+		{"따옴표 안의 명령 이름은 명령이 아니다", `git commit -m "cat .env"`, nil},
+
 		{"읽기 명령이 아니면 무시", "rm .env", nil},
 		{"echo 는 무시", "echo .env 를 확인하세요", nil},
 		{"dotenvx run 은 무시", "dotenvx run -- python x.py", nil},
