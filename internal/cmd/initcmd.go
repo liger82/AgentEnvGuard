@@ -107,6 +107,12 @@ func Init(dir string, run Runner, stdout io.Writer) error {
 로테이션하세요. 암호화했다는 이유로 안심하면 안 됩니다.
 `, strings.TrimSpace(string(out)))
 		}
+	} else {
+		fmt.Fprintf(stdout, `
+알림: git 히스토리를 확인할 수 없습니다 (git 이 없거나 git 저장소가 아님).
+프로젝트가 버전 관리 중이라면, 평문 .env 가 과거에 커밋된 적 있는지
+수동으로 확인하세요. 있다면 해당 키를 발급처에서 로테이션하세요.
+`)
 	}
 
 	fmt.Fprintf(stdout, "\n이제 스크립트를 이렇게 실행하세요:\n  dotenvx run -- <실행할 명령>\n")

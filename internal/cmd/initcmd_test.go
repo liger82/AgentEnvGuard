@@ -74,6 +74,23 @@ func fakeRunner(t *testing.T, dotenvxFound bool, gitLogOutput string, calls *[]s
 	}
 }
 
+// fakeRunnerWithGitError 는 git 명령을 실패시킨다.
+func fakeRunnerWithGitError(t *testing.T, calls *[]string) Runner {
+	t.Helper()
+	return func(dir, name string, args ...string) ([]byte, error) {
+		*calls = append(*calls, name+" "+strings.Join(args, " "))
+		switch {
+		case name == "dotenvx" && len(args) > 0 && args[0] == "--version":
+			return []byte("1.0.0"), nil
+		case name == "dotenvx" && len(args) > 0 && args[0] == "encrypt":
+			return []byte("encrypted"), nil
+		case name == "git":
+			return nil, fmt.Errorf("git: 실행 파일 없음 또는 저장소 아님")
+		}
+		return nil, nil
+	}
+}
+
 func TestInitFailsWithoutDotenvx(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, ".env"), "SECRET=abc\n")
@@ -162,5 +179,26 @@ func TestInitAdvisesButDoesNotRemoveEnvFromGitignore(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), ".gitignore") {
 		t.Errorf("안내 문구가 없다:\n%s", out.String())
+	}
+}
+
+func TestInitNotifiesWhenGitHistoryCannotBeChecked(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, ".env"), "SECRET=abc\n")
+	var calls []string
+	var out bytes.Buffer
+	// git 명령이 실패하는 경우 (git 없음 또는 저장소 아님)
+	err := Init(dir, fakeRunnerWithGitError(t, &calls), &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Init 은 여전히 nil 을 반환해야 한다 (암호화는 성공했음)
+	// stdout 에 git 확인 실패 알림이 있어야 한다
+	output := out.String()
+	if !strings.Contains(output, "git") {
+		t.Errorf("git 확인 실패 알림이 없다:\n%s", output)
+	}
+	if !strings.Contains(output, "확인할 수 없습니다") {
+		t.Errorf("git 확인 실패 메시지가 없다:\n%s", output)
 	}
 }
