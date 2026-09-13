@@ -145,18 +145,25 @@ Go 단일 바이너리는 1~3ms다. 배포도 단일 파일이라 brew·curl 채
 | 2 | `DOTENV_PRIVATE_KEY` 출력 (`echo`, `env`, `printenv`, `set`) | Bash |
 | 3 | `dotenvx get <KEY>`, `dotenvx keypair` (개인키를 그대로 출력) | Bash |
 | 4 | `dotenvx decrypt` (특히 `--stdout`) | Bash |
-| 5 | `dotenvx run [옵션] -- <환경변수 출력 명령>` — `env`·`printenv`(인자 유무 무관), 위치 인자 없는 `set`·`export -p`·`declare -x`/`-p` | Bash |
+| 5 | `dotenvx run [옵션] -- <환경변수 출력 명령>` — `printenv`(인자 유무 무관), 옵션·`VAR=값` 만 있는 `env`(`env FOO=1 cmd` 는 허용), 위치 인자 없는 `set`·`export -p`·`declare -x`/`-p` | Bash |
 | 6 | **평문** `.env` 읽기 | Bash, Read, Grep |
 
 Bash 판정의 공통 규칙:
 
 - 짝이 맞는 `"..."`, `'...'` 는 벗겨서 한 토큰으로 본다. 따옴표 안의 공백과
   구분자(`&&`, `||`, `;`, `|`, 줄바꿈)는 토큰·명령을 나누지 않는다.
+- 백슬래시는 bash 규칙을 따른다. 따옴표 밖에서는 다음 글자를 이스케이프하고,
+  큰따옴표 안에서는 `"` `\` `$` `` ` `` 와 줄바꿈만, 작은따옴표 안에서는
+  아무것도 이스케이프하지 않는다.
+- 읽기 명령은 `sudo`/`doas`(옵션 포함), `env`(옵션·`VAR=값`), `command`,
+  `builtin`, `exec`, `nice`, `nohup`, `time`, 맨 앞 `VAR=값` 접두어를 건너뛰고 찾는다.
 - 3~5번의 `dotenvx` 는 명령 첫 토큰이 아니어도 찾는다. `npx`, `bunx`,
   `pnpm exec`/`dlx`, `sudo`, `env VAR=1` 같은 래퍼 뒤의 `dotenvx`,
   `@dotenvx/dotenvx`, `@버전` 접미어를 모두 같게 본다.
 - 경로 토큰의 선두 `~`, `$HOME`, `${HOME}` 은 홈 디렉터리로 펼친다.
-- `cat<.env` 처럼 붙여 쓴 리다이렉션도 대상 경로를 본다.
+- 리다이렉션 연산자(`<`, `>`, `>>`, `<<<`, `2>`, `&>`, `2>&1` 등)는 붙여 써도
+  떼어낸다. 입력 리다이렉션(`cat<.env`)의 대상은 읽기로 보고, 출력 리다이렉션
+  대상(`echo hi > .env`)은 읽기가 아니므로 그 자체로는 차단하지 않는다.
 
 ### Grep 을 반드시 포함한다
 
