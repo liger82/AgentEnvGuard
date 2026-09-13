@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/liger82/AgentEnvGuard/internal/allowlist"
 )
@@ -38,8 +39,10 @@ func deny(format string, a ...any) Decision {
 // 부작용이 없다.
 func (e *Engine) Decide(tc ToolCall) Decision {
 	switch tc.Kind {
-	case ToolFileRead, ToolContentSearch:
+	case ToolFileRead:
 		return e.decidePath(tc.Path, tc.Cwd)
+	case ToolContentSearch:
+		return e.decideContentSearch(tc)
 	case ToolBash:
 		return e.decideBash(tc)
 	default:
@@ -62,6 +65,12 @@ func (e *Engine) decidePath(p, cwd string) Decision {
 	if allowlist.Covers(e.AllowRoots, full) {
 		return allow()
 	}
+	return e.decidePathKind(full)
+}
+
+// decidePathKind 는 (allowlist 를 통과한) 경로 하나를 종류에 따라 판정한다.
+// decidePath 와 decideContentSearch 가 공유한다.
+func (e *Engine) decidePathKind(full string) Decision {
 	switch ClassifyPath(full) {
 	case PathEnvKeys:
 		// 파일을 열지 않고 차단한다. 읽기 실패와 무관하게 판정이 명확하다.
@@ -76,6 +85,29 @@ func (e *Engine) decidePath(p, cwd string) Decision {
 	default:
 		return allow()
 	}
+}
+
+// isPrivateKeyPattern 은 Grep 패턴이 dotenvx 개인키를 노린 것인지 본다.
+// 대소문자를 가리지 않는다.
+func isPrivateKeyPattern(pattern string) bool {
+	return strings.Contains(strings.ToUpper(pattern), "DOTENV_PRIVATE_KEY")
+}
+
+// decideContentSearch 는 Grep 을 판정한다. Grep 은 path 가 비어 있거나
+// 디렉터리여도(재귀 검색) 동작하므로, 경로 판정만으로는 개인키를 노리는
+// 패턴을 잡을 수 없다. path 판정에 더해 패턴 자체도 본다.
+//
+// 무해한 검색(예: "func main")을 path 없이 실행하는 것은 Grep 의 주된
+// 용도이므로 막지 않는다 — 막는 것은 어디까지나 개인키를 노리는 패턴이다.
+func (e *Engine) decideContentSearch(tc ToolCall) Decision {
+	full := e.abs(tc.Path, tc.Cwd)
+	if allowlist.Covers(e.AllowRoots, full) {
+		return allow()
+	}
+	if isPrivateKeyPattern(tc.Pattern) {
+		return deny(msgGrepPrivateKey)
+	}
+	return e.decidePathKind(full)
 }
 
 func (e *Engine) decideBash(tc ToolCall) Decision {
@@ -129,6 +161,12 @@ const (
   dotenvx run -- <실행할 명령>`
 
 	msgPrivateKey = `DOTENV_PRIVATE_KEY 를 출력하면 볼트 전체가 열립니다.
+
+값을 직접 볼 필요 없이 다음으로 실행하세요:
+  dotenvx run -- <실행할 명령>`
+
+	msgGrepPrivateKey = `이 검색 패턴은 DOTENV_PRIVATE_KEY 를 찾습니다. 경로가 없거나
+디렉터리여도 매칭된 줄 내용에 개인키가 그대로 노출됩니다.
 
 값을 직접 볼 필요 없이 다음으로 실행하세요:
   dotenvx run -- <실행할 명령>`
