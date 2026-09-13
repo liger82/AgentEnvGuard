@@ -2,11 +2,28 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/liger82/AgentEnvGuard/internal/policy"
 )
+
+// errWriter 는 Write 가 항상 에러를 반환하는 스텁이다 — Emit 실패 경로를 본다.
+type errWriter struct{}
+
+func (errWriter) Write(p []byte) (int, error) {
+	return 0, errors.New("쓰기 실패")
+}
+
+// panicWriter 는 Write 가 패닉하는 스텁이다 — recover 경계가 Emit 까지
+// 덮는지 본다. Emit 오늘 구현은 패닉하지 않지만, 그것은 구현의 우연이지
+// 구조적 보장이 아니므로 recover 경계 자체를 검증한다.
+type panicWriter struct{}
+
+func (panicWriter) Write(p []byte) (int, error) {
+	panic("emit 중 의도적 패닉")
+}
 
 func testEngine(kinds map[string]policy.EnvFileKind) *policy.Engine {
 	return &policy.Engine{
@@ -68,6 +85,30 @@ func TestHookFailsOpenOnPanic(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"allow"`) {
 		t.Errorf("패닉 시 통과시켜야 한다: %s", out.String())
+	}
+}
+
+func TestHookFailsOpenOnEmitError(t *testing.T) {
+	in := `{"cwd":"/p","tool_name":"Bash","tool_input":{"command":"go test ./..."}}`
+	var errOut bytes.Buffer
+	code := Hook(strings.NewReader(in), errWriter{}, &errOut, testEngine(nil))
+	if code != 0 {
+		t.Errorf("종료코드 = %d, want 0", code)
+	}
+	if errOut.Len() == 0 {
+		t.Error("stderr 에 경고를 남겨야 한다")
+	}
+}
+
+func TestHookFailsOpenOnEmitPanic(t *testing.T) {
+	in := `{"cwd":"/p","tool_name":"Bash","tool_input":{"command":"go test ./..."}}`
+	var errOut bytes.Buffer
+	code := Hook(strings.NewReader(in), panicWriter{}, &errOut, testEngine(nil))
+	if code != 0 {
+		t.Errorf("종료코드 = %d, want 0 (Emit 패닉도 최상위 recover 로 잡혀야 한다)", code)
+	}
+	if errOut.Len() == 0 {
+		t.Error("stderr 에 경고를 남겨야 한다")
 	}
 }
 
