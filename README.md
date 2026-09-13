@@ -58,7 +58,7 @@ bash 를 실행할 수 있는 에이전트에게서 값을 완전히 숨기는 �
 
 ```bash
 brew install dotenvx/brew/dotenvx   # 볼트는 dotenvx 가 맡는다
-go install github.com/liger82/AgentEnvGuard@latest
+go install github.com/liger82/AgentEnvGuard/cmd/aeg@latest
 aeg install                         # 노트북당 한 번
 ```
 
