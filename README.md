@@ -1,6 +1,5 @@
 # AgentEnvGuard 쉽게 이해하기
 
-> [README.md](README.md) 를 처음 보는 사람을 위해 풀어 쓴 버전입니다.
 > 명령 이름은 `aeg` 입니다.
 
 ---
@@ -391,4 +390,5 @@ aeg 가 고장 나서 **모든 작업이 막히는 것**도 사고입니다. 그
 
 - [docs/dotenvx-guide.md](docs/dotenvx-guide.md) — `aeg init` 과 dotenvx 키 저장 방식 상세
 - [docs/decisions-2026-09-13.md](docs/decisions-2026-09-13.md) — 개발 중 내린 결정과 그 이유
+- [docs/investigation-2026-09-27.md](docs/investigation-2026-09-27.md) - dotenvx 의 OS 키체인 전환과 출력 리댁션 검토
 
